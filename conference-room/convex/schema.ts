@@ -5,6 +5,7 @@ export default defineSchema({
   bookings: defineTable({
     slotDate: v.string(),
     slotTime: v.string(),
+    slotCount: v.number(),
     name: v.string(),
     company: v.union(
       v.literal("nilo"),

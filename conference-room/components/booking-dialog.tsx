@@ -2,7 +2,11 @@
 
 import { useState } from "react"
 
-import { COMPANIES, formatTimeSlot, getCompanyLabel } from "@/lib/constants"
+import {
+  COMPANIES,
+  formatTimeRange,
+  getCompanyLabel,
+} from "@/lib/constants"
 import type { CompanyId, TimeSlot } from "@/lib/constants"
 import type { CreateBookingInput } from "@/hooks/use-local-bookings"
 import type { Booking } from "@/lib/types"
@@ -33,6 +37,7 @@ import { Textarea } from "@/components/ui/textarea"
 type SlotSelection = {
   slotDate: string
   slotTime: TimeSlot
+  slotCount: number
   booking?: Booking
 }
 
@@ -85,6 +90,7 @@ export function BookingDialog({
       await createBooking({
         slotDate: selection.slotDate,
         slotTime: selection.slotTime,
+        slotCount: selection.slotCount,
         name,
         company: company as CompanyId,
         note,
@@ -119,7 +125,7 @@ export function BookingDialog({
 
   const slotLabel =
     selection &&
-    `${formatWeekday(new Date(`${selection.slotDate}T00:00:00`))}, ${formatDay(new Date(`${selection.slotDate}T00:00:00`))} · ${formatTimeSlot(selection.slotTime)}`
+    `${formatWeekday(new Date(`${selection.slotDate}T00:00:00`))}, ${formatDay(new Date(`${selection.slotDate}T00:00:00`))} · ${formatTimeRange(selection.slotTime, selection.slotCount)}`
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -135,6 +141,9 @@ export function BookingDialog({
               <span className="font-medium">{booking.name}</span>
               <Badge variant="secondary">{getCompanyLabel(booking.company)}</Badge>
             </div>
+            <p className="text-sm text-muted-foreground">
+              {formatTimeRange(booking.slotTime, booking.slotCount)}
+            </p>
             {booking.note ? (
               <p className="text-sm text-muted-foreground">{booking.note}</p>
             ) : null}

@@ -2,6 +2,51 @@ import { v } from "convex/values"
 
 import { mutation, query } from "./_generated/server"
 
+const SLOT_DURATION_MINUTES = 20
+const DAY_START_MINUTES = 8 * 60
+const DAY_END_MINUTES = 17 * 60
+
+function minutesToTime(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`
+}
+
+function generateTimeSlots() {
+  const slots: string[] = []
+
+  for (
+    let minutes = DAY_START_MINUTES;
+    minutes <= DAY_END_MINUTES;
+    minutes += SLOT_DURATION_MINUTES
+  ) {
+    slots.push(minutesToTime(minutes))
+  }
+
+  return slots
+}
+
+const TIME_SLOTS = generateTimeSlots()
+
+function getSlotsForBooking(startTime: string, slotCount: number) {
+  const startIndex = TIME_SLOTS.indexOf(startTime)
+
+  if (startIndex === -1 || slotCount < 1) {
+    return [startTime]
+  }
+
+  return TIME_SLOTS.slice(startIndex, startIndex + slotCount)
+}
+
+function bookingOccupiesSlot(
+  booking: { slotTime: string; slotCount?: number },
+  slotTime: string
+) {
+  return getSlotsForBooking(booking.slotTime, booking.slotCount ?? 1).includes(
+    slotTime
+  )
+}
+
 export const listForWeek = query({
   args: {
     startDate: v.string(),
@@ -19,6 +64,7 @@ export const listForWeek = query({
       .map(({ _id, _creationTime, ...booking }) => ({
         id: _id,
         ...booking,
+        slotCount: booking.slotCount ?? 1,
         slotTime: booking.slotTime,
         createdAt: new Date(booking.createdAt).toISOString(),
       }))
@@ -34,6 +80,7 @@ export const create = mutation({
   args: {
     slotDate: v.string(),
     slotTime: v.string(),
+    slotCount: v.number(),
     name: v.string(),
     company: v.union(
       v.literal("nilo"),
@@ -43,19 +90,35 @@ export const create = mutation({
     note: v.string(),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("bookings")
-      .withIndex("by_slot", (q) =>
-        q.eq("slotDate", args.slotDate).eq("slotTime", args.slotTime)
-      )
-      .unique()
+    const slotCount = Math.max(1, args.slotCount)
+    const slots = getSlotsForBooking(args.slotTime, slotCount)
 
-    if (existing) {
-      throw new Error("That slot is already booked.")
+    if (slots.length !== slotCount) {
+      throw new Error("That booking extends beyond the available hours.")
+    }
+
+    const dayBookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_slot_date", (q) => q.eq("slotDate", args.slotDate))
+      .collect()
+
+    for (const slotTime of slots) {
+      const conflict = dayBookings.find((booking) =>
+        bookingOccupiesSlot(booking, slotTime)
+      )
+
+      if (conflict) {
+        throw new Error("That slot is already booked.")
+      }
     }
 
     await ctx.db.insert("bookings", {
-      ...args,
+      slotDate: args.slotDate,
+      slotTime: args.slotTime,
+      slotCount,
+      name: args.name,
+      company: args.company,
+      note: args.note,
       createdAt: Date.now(),
     })
   },
