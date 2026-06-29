@@ -7,7 +7,10 @@ import { BookingDialog } from "@/components/booking-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
-import type { CreateBookingInput } from "@/hooks/use-local-bookings"
+import type {
+  CreateBookingInput,
+  UpdateBookingInput,
+} from "@/hooks/use-local-bookings"
 import {
   COMPANIES,
   TIME_SLOTS,
@@ -16,6 +19,7 @@ import {
   formatTimeSlot,
   getCompanyLabel,
   getOrderedSlotRange,
+  getResizeSlotCount,
   getSlotsForBooking,
 } from "@/lib/constants"
 import type { TimeSlot } from "@/lib/constants"
@@ -33,6 +37,7 @@ type TimetableShellProps = {
   weekStart: Date
   bookings: Booking[] | undefined
   createBooking: (input: CreateBookingInput) => Promise<void>
+  updateBooking: (input: UpdateBookingInput) => Promise<void>
   removeBooking: (id: string) => Promise<void>
   isLocal?: boolean
 }
@@ -48,6 +53,11 @@ type DragPreview = {
   slotDate: string
   startTime: TimeSlot
   endTime: TimeSlot
+}
+
+type ResizePreview = {
+  booking: Booking
+  slotCount: number
 }
 
 function companyBadgeVariant(company: string) {
@@ -82,13 +92,17 @@ export function TimetableShell({
   weekStart,
   bookings,
   createBooking,
+  updateBooking,
   removeBooking,
   isLocal = false,
 }: TimetableShellProps) {
   const [selection, setSelection] = useState<SlotSelection | null>(null)
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null)
+  const [resizePreview, setResizePreview] = useState<ResizePreview | null>(null)
   const isDraggingRef = useRef(false)
+  const isResizingRef = useRef(false)
   const dragPreviewRef = useRef<DragPreview | null>(null)
+  const resizePreviewRef = useRef<ResizePreview | null>(null)
 
   const weekDays = useMemo(() => getWeekdayDates(weekStart), [weekStart])
   const previousWeek = shiftWeek(weekStart, -1)
@@ -113,7 +127,26 @@ export function TimetableShell({
   }, [dragPreview])
 
   useEffect(() => {
-    function stopDragging() {
+    resizePreviewRef.current = resizePreview
+  }, [resizePreview])
+
+  useEffect(() => {
+    function stopPointerInteraction() {
+      if (isResizingRef.current) {
+        const preview = resizePreviewRef.current
+        isResizingRef.current = false
+        setResizePreview(null)
+
+        if (preview && preview.slotCount !== preview.booking.slotCount) {
+          void updateBooking({
+            id: preview.booking.id,
+            slotCount: preview.slotCount,
+          })
+        }
+
+        return
+      }
+
       const preview = dragPreviewRef.current
 
       if (!isDraggingRef.current || !preview) {
@@ -144,16 +177,16 @@ export function TimetableShell({
       }
     }
 
-    window.addEventListener("pointerup", stopDragging)
-    return () => window.removeEventListener("pointerup", stopDragging)
-  }, [daySlotMaps])
+    window.addEventListener("pointerup", stopPointerInteraction)
+    return () => window.removeEventListener("pointerup", stopPointerInteraction)
+  }, [daySlotMaps, updateBooking])
 
   function handleSlotPointerDown(
     slotDate: string,
     slotTime: TimeSlot,
     occupiedSlots: Set<string>
   ) {
-    if (occupiedSlots.has(slotTime)) {
+    if (isResizingRef.current || occupiedSlots.has(slotTime)) {
       return
     }
 
@@ -168,8 +201,23 @@ export function TimetableShell({
   function handleSlotPointerEnter(
     slotDate: string,
     slotTime: TimeSlot,
-    occupiedSlots: Set<string>
+    dayMaps: ReturnType<typeof buildDaySlotMaps<Booking>>
   ) {
+    if (isResizingRef.current && resizePreviewRef.current) {
+      const preview = resizePreviewRef.current
+      const slotCount = getResizeSlotCount(
+        preview.booking,
+        slotTime,
+        dayMaps.slotToBooking
+      )
+
+      setResizePreview({
+        booking: preview.booking,
+        slotCount,
+      })
+      return
+    }
+
     if (!isDraggingRef.current || !dragPreview || dragPreview.slotDate !== slotDate) {
       return
     }
@@ -179,7 +227,9 @@ export function TimetableShell({
       slotTime
     )
     const slots = getSlotsForBooking(startTime, slotCount)
-    const overlaps = slots.some((candidate) => occupiedSlots.has(candidate))
+    const overlaps = slots.some((candidate) =>
+      dayMaps.occupiedSlots.has(candidate)
+    )
 
     if (overlaps) {
       return
@@ -192,7 +242,25 @@ export function TimetableShell({
     })
   }
 
+  function handleResizePointerDown(
+    event: React.PointerEvent<HTMLDivElement>,
+    booking: Booking
+  ) {
+    event.preventDefault()
+    event.stopPropagation()
+
+    isResizingRef.current = true
+    setResizePreview({
+      booking,
+      slotCount: booking.slotCount,
+    })
+  }
+
   function handleBookedSlotClick(booking: Booking) {
+    if (isResizingRef.current) {
+      return
+    }
+
     setSelection({
       slotDate: booking.slotDate,
       slotTime: booking.slotTime as TimeSlot,
@@ -261,7 +329,8 @@ export function TimetableShell({
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Click and drag on empty slots to book multiple 20-minute blocks.
+          Drag on empty slots to book, or drag the bottom edge of a booking to
+          extend it. Slots are 15 minutes.
         </p>
 
         <div className="overflow-x-auto rounded-xl border">
@@ -289,85 +358,130 @@ export function TimetableShell({
             <tbody>
               {TIME_SLOTS.map((slotTime) => (
                 <tr key={slotTime} className="border-b last:border-b-0">
-                  <td className="px-3 py-1 align-top text-xs text-muted-foreground">
+                  <td className="px-3 py-0.5 align-top text-xs text-muted-foreground">
                     {slotTime.endsWith(":00") ? formatTimeSlot(slotTime) : ""}
                   </td>
                   {weekDays.map((day) => {
                     const slotDate = toDateKey(day)
                     const dayMaps = daySlotMaps.get(slotDate)
 
-                    if (!dayMaps || dayMaps.continuationSlots.has(slotTime)) {
+                    if (!dayMaps) {
+                      return null
+                    }
+
+                    const resizeForDay =
+                      resizePreview?.booking.slotDate === slotDate
+                        ? resizePreview
+                        : null
+                    const previewSlots = resizeForDay
+                      ? getSlotsForBooking(
+                          resizeForDay.booking.slotTime,
+                          resizeForDay.slotCount
+                        )
+                      : []
+                    const isPreviewContinuation =
+                      resizeForDay !== null &&
+                      previewSlots.includes(slotTime) &&
+                      previewSlots[0] !== slotTime
+
+                    if (
+                      dayMaps.continuationSlots.has(slotTime) ||
+                      isPreviewContinuation
+                    ) {
                       return null
                     }
 
                     const booking = dayMaps.startBySlot.get(slotTime)
-                    const slotCount = booking?.slotCount ?? 1
+                    const isPreviewStart =
+                      resizeForDay?.booking.slotTime === slotTime
+                    const displayBooking =
+                      booking ?? (isPreviewStart ? resizeForDay?.booking : undefined)
+                    const slotCount =
+                      isPreviewStart && resizeForDay
+                        ? resizeForDay.slotCount
+                        : booking?.slotCount ?? 1
                     const previewActive = isSlotInPreview(
                       slotDate,
                       slotTime,
                       dragPreview
                     )
+                    const resizeActive =
+                      resizeForDay !== null &&
+                      displayBooking?.id === resizeForDay.booking.id
 
                     return (
                       <td
                         key={`${slotDate}_${slotTime}`}
-                        rowSpan={booking ? slotCount : 1}
+                        rowSpan={displayBooking ? slotCount : 1}
                         className="p-0.5 align-top"
                       >
-                        <button
-                          type="button"
-                          onPointerDown={() => {
-                            if (booking) {
-                              handleBookedSlotClick(booking)
-                              return
-                            }
-
-                            handleSlotPointerDown(
-                              slotDate,
-                              slotTime,
-                              dayMaps.occupiedSlots
-                            )
-                          }}
-                          onPointerEnter={() => {
-                            if (booking) {
-                              return
-                            }
-
-                            handleSlotPointerEnter(
-                              slotDate,
-                              slotTime,
-                              dayMaps.occupiedSlots
-                            )
-                          }}
-                          className={cn(
-                            "flex h-full min-h-8 w-full flex-col gap-1 rounded-md border border-transparent px-2 py-1 text-left transition-colors hover:bg-muted/50",
-                            booking && "border-border bg-muted/20",
-                            previewActive &&
-                              "border-primary/40 bg-primary/10 ring-1 ring-primary/20"
-                          )}
-                        >
-                          {booking ? (
-                            <>
+                        {displayBooking ? (
+                          <div
+                            className={cn(
+                              "relative flex h-full min-h-6 w-full flex-col rounded-md border bg-muted/20",
+                              resizeActive
+                                ? "border-primary/40 ring-1 ring-primary/20"
+                                : "border-border"
+                            )}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => handleBookedSlotClick(displayBooking)}
+                              className="flex flex-1 flex-col gap-1 px-2 py-1 text-left"
+                            >
                               <span className="truncate text-sm font-medium">
-                                {booking.name}
+                                {displayBooking.name}
                               </span>
                               <Badge
-                                variant={companyBadgeVariant(booking.company)}
+                                variant={companyBadgeVariant(displayBooking.company)}
                                 className="w-fit"
                               >
-                                {getCompanyLabel(booking.company)}
+                                {getCompanyLabel(displayBooking.company)}
                               </Badge>
                               <span className="text-xs text-muted-foreground">
-                                {formatTimeRange(booking.slotTime, booking.slotCount)}
+                                {formatTimeRange(
+                                  displayBooking.slotTime,
+                                  slotCount
+                                )}
                               </span>
-                              {booking.note ? (
+                              {displayBooking.note ? (
                                 <span className="truncate text-xs text-muted-foreground">
-                                  {booking.note}
+                                  {displayBooking.note}
                                 </span>
                               ) : null}
-                            </>
-                          ) : null}
-                        </button>
+                            </button>
+                            <div
+                              aria-label="Drag to extend booking"
+                              onPointerDown={(event) =>
+                                handleResizePointerDown(event, displayBooking)
+                              }
+                              className="absolute inset-x-1 bottom-0 z-10 h-2.5 cursor-ns-resize rounded-b-md hover:bg-primary/30 active:bg-primary/40"
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onPointerDown={() =>
+                              handleSlotPointerDown(
+                                slotDate,
+                                slotTime,
+                                dayMaps.occupiedSlots
+                              )
+                            }
+                            onPointerEnter={() =>
+                              handleSlotPointerEnter(
+                                slotDate,
+                                slotTime,
+                                dayMaps
+                              )
+                            }
+                            className={cn(
+                              "block h-full min-h-6 w-full rounded-md border border-transparent transition-colors hover:bg-muted/50",
+                              previewActive &&
+                                "border-primary/40 bg-primary/10 ring-1 ring-primary/20"
+                            )}
+                          />
+                        )}
                       </td>
                     )
                   })}

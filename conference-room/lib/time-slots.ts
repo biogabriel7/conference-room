@@ -1,4 +1,4 @@
-export const SLOT_DURATION_MINUTES = 20
+export const SLOT_DURATION_MINUTES = 15
 
 const DAY_START_MINUTES = 8 * 60
 const DAY_END_MINUTES = 17 * 60
@@ -80,6 +80,9 @@ export function formatTimeSlot(time: string) {
   const hour = Number.parseInt(hours, 10)
   const suffix = hour >= 12 ? "pm" : "am"
   const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour
+  if (minutes === "00") {
+    return `${displayHour}${suffix}`
+  }
   return `${displayHour}:${minutes}${suffix}`
 }
 
@@ -97,6 +100,34 @@ export function formatTimeRange(startTime: string, slotCount: number) {
   return `${start} – ${end}`
 }
 
+export function getResizeSlotCount(
+  booking: BookingLike,
+  targetSlotTime: string,
+  slotToBooking: Map<string, BookingLike>
+) {
+  const startIndex = getSlotIndex(booking.slotTime)
+  const targetIndex = getSlotIndex(targetSlotTime)
+
+  if (startIndex === -1 || targetIndex === -1 || targetIndex < startIndex) {
+    return booking.slotCount ?? 1
+  }
+
+  let validCount = booking.slotCount ?? 1
+
+  for (let index = startIndex; index <= targetIndex; index += 1) {
+    const slot = TIME_SLOTS[index]
+    const occupier = slotToBooking.get(slot)
+
+    if (occupier && occupier !== booking) {
+      break
+    }
+
+    validCount = index - startIndex + 1
+  }
+
+  return validCount
+}
+
 type BookingLike = {
   slotDate: string
   slotTime: string
@@ -110,6 +141,7 @@ export function buildDaySlotMaps<T extends BookingLike>(
   const startBySlot = new Map<string, T>()
   const continuationSlots = new Set<string>()
   const occupiedSlots = new Set<string>()
+  const slotToBooking = new Map<string, T>()
 
   for (const booking of bookings) {
     if (booking.slotDate !== slotDate) {
@@ -123,6 +155,7 @@ export function buildDaySlotMaps<T extends BookingLike>(
 
     for (const slot of slots) {
       occupiedSlots.add(slot)
+      slotToBooking.set(slot, booking)
     }
 
     for (let index = 1; index < slots.length; index += 1) {
@@ -130,5 +163,5 @@ export function buildDaySlotMaps<T extends BookingLike>(
     }
   }
 
-  return { startBySlot, continuationSlots, occupiedSlots }
+  return { startBySlot, continuationSlots, occupiedSlots, slotToBooking }
 }

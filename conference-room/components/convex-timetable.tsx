@@ -19,6 +19,7 @@ export function ConvexTimetable({ weekStart }: ConvexTimetableProps) {
 
   const bookings = useQuery(api.bookings.listForWeek, { startDate, endDate })
   const createBookingMutation = useMutation(api.bookings.create)
+  const updateBookingMutation = useMutation(api.bookings.update)
   const removeBookingMutation = useMutation(api.bookings.remove)
 
   return (
@@ -27,6 +28,12 @@ export function ConvexTimetable({ weekStart }: ConvexTimetableProps) {
       bookings={bookings as Booking[] | undefined}
       createBooking={async (input) => {
         await createBookingMutation(input)
+      }}
+      updateBooking={async (input) => {
+        await updateBookingMutation({
+          id: input.id as Id<"bookings">,
+          slotCount: input.slotCount,
+        })
       }}
       removeBooking={async (id) => {
         await removeBookingMutation({ id: id as Id<"bookings"> })

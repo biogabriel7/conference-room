@@ -2,7 +2,7 @@ import { v } from "convex/values"
 
 import { mutation, query } from "./_generated/server"
 
-const SLOT_DURATION_MINUTES = 20
+const SLOT_DURATION_MINUTES = 15
 const DAY_START_MINUTES = 8 * 60
 const DAY_END_MINUTES = 17 * 60
 
@@ -121,6 +121,45 @@ export const create = mutation({
       note: args.note,
       createdAt: Date.now(),
     })
+  },
+})
+
+export const update = mutation({
+  args: {
+    id: v.id("bookings"),
+    slotCount: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const booking = await ctx.db.get(args.id)
+
+    if (!booking) {
+      throw new Error("Booking not found.")
+    }
+
+    const slotCount = Math.max(1, args.slotCount)
+    const slots = getSlotsForBooking(booking.slotTime, slotCount)
+
+    if (slots.length !== slotCount) {
+      throw new Error("That booking extends beyond the available hours.")
+    }
+
+    const dayBookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_slot_date", (q) => q.eq("slotDate", booking.slotDate))
+      .collect()
+
+    for (const slotTime of slots) {
+      const conflict = dayBookings.find(
+        (candidate) =>
+          candidate._id !== booking._id && bookingOccupiesSlot(candidate, slotTime)
+      )
+
+      if (conflict) {
+        throw new Error("That slot is already booked.")
+      }
+    }
+
+    await ctx.db.patch(args.id, { slotCount })
   },
 })
 

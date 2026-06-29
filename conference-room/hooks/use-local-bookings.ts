@@ -8,6 +8,11 @@ import type { Booking } from "@/lib/types"
 
 const STORAGE_KEY = "conference-room-local-bookings"
 
+export type UpdateBookingInput = {
+  id: string
+  slotCount: number
+}
+
 export type CreateBookingInput = {
   slotDate: string
   slotTime: TimeSlot
@@ -124,9 +129,41 @@ export function useLocalBookings(startDate: string, endDate: string) {
     writeBookings(bookingsStore.filter((booking) => booking.id !== id))
   }, [])
 
+  const updateBooking = useCallback(async (input: UpdateBookingInput) => {
+    const booking = bookingsStore.find((candidate) => candidate.id === input.id)
+
+    if (!booking) {
+      throw new Error("Booking not found.")
+    }
+
+    const slotCount = Math.max(1, input.slotCount)
+    const slots = getSlotsForBooking(booking.slotTime, slotCount)
+
+    if (slots.length !== slotCount) {
+      throw new Error("That booking extends beyond the available hours.")
+    }
+
+    const hasConflict = bookingsStore.some(
+      (candidate) =>
+        candidate.id !== booking.id &&
+        slots.some((slotTime) => bookingOccupiesSlot(candidate, booking.slotDate, slotTime))
+    )
+
+    if (hasConflict) {
+      throw new Error("That slot is already booked.")
+    }
+
+    writeBookings(
+      bookingsStore.map((candidate) =>
+        candidate.id === booking.id ? { ...candidate, slotCount } : candidate
+      )
+    )
+  }, [])
+
   return {
     bookings,
     createBooking,
     removeBooking,
+    updateBooking,
   }
 }
