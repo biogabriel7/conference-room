@@ -292,9 +292,6 @@ export function TimetableShell({
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
             <h1 className="text-lg font-medium tracking-tight">Conference room</h1>
-            <p className="text-sm text-muted-foreground">
-              Nilo · First Plug · Volantis
-            </p>
           </div>
           <div className="flex items-center gap-2">
             <Button
