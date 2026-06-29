@@ -2,13 +2,12 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
-import { useQuery } from "convex/react"
 
-import { api } from "@/convex/_generated/api"
 import { BookingDialog } from "@/components/booking-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import type { CreateBookingInput } from "@/hooks/use-local-bookings"
 import { COMPANIES, TIME_SLOTS, formatTimeSlot, getCompanyLabel } from "@/lib/constants"
 import type { TimeSlot } from "@/lib/constants"
 import type { Booking } from "@/lib/types"
@@ -21,8 +20,12 @@ import {
 } from "@/lib/week"
 import { cn } from "@/lib/utils"
 
-type TimetableProps = {
+type TimetableShellProps = {
   weekStart: Date
+  bookings: Booking[] | undefined
+  createBooking: (input: CreateBookingInput) => Promise<void>
+  removeBooking: (id: string) => Promise<void>
+  isLocal?: boolean
 }
 
 function companyBadgeVariant(company: string) {
@@ -35,7 +38,13 @@ function companyBadgeVariant(company: string) {
   return "outline" as const
 }
 
-export function Timetable({ weekStart }: TimetableProps) {
+export function TimetableShell({
+  weekStart,
+  bookings,
+  createBooking,
+  removeBooking,
+  isLocal = false,
+}: TimetableShellProps) {
   const [selection, setSelection] = useState<{
     slotDate: string
     slotTime: TimeSlot
@@ -43,20 +52,16 @@ export function Timetable({ weekStart }: TimetableProps) {
   } | null>(null)
 
   const weekDays = useMemo(() => getWeekdayDates(weekStart), [weekStart])
-  const startDate = toDateKey(weekDays[0])
-  const endDate = toDateKey(weekDays[4])
-  const bookings = useQuery(api.bookings.listForWeek, { startDate, endDate })
+  const previousWeek = shiftWeek(weekStart, -1)
+  const nextWeek = shiftWeek(weekStart, 1)
 
   const bookingMap = useMemo(() => {
     const map = new Map<string, Booking>()
     for (const booking of bookings ?? []) {
-      map.set(`${booking.slotDate}_${booking.slotTime}`, booking as Booking)
+      map.set(`${booking.slotDate}_${booking.slotTime}`, booking)
     }
     return map
   }, [bookings])
-
-  const previousWeek = shiftWeek(weekStart, -1)
-  const nextWeek = shiftWeek(weekStart, 1)
 
   if (bookings === undefined) {
     return (
@@ -69,6 +74,16 @@ export function Timetable({ weekStart }: TimetableProps) {
   return (
     <>
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-6">
+        {isLocal ? (
+          <div className="rounded-lg border border-dashed bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            Local mode — bookings are stored in this browser only. Run{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+              npm run dev
+            </code>{" "}
+            to connect Convex.
+          </div>
+        ) : null}
+
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
             <h1 className="text-lg font-medium tracking-tight">Conference room</h1>
@@ -174,7 +189,12 @@ export function Timetable({ weekStart }: TimetableProps) {
         </div>
       </div>
 
-      <BookingDialog selection={selection} onClose={() => setSelection(null)} />
+      <BookingDialog
+        selection={selection}
+        onClose={() => setSelection(null)}
+        createBooking={createBooking}
+        removeBooking={removeBooking}
+      />
     </>
   )
 }
