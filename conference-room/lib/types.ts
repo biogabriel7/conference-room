@@ -4,6 +4,7 @@ export type Booking = {
   id: string
   slotDate: string
   slotTime: TimeSlot
+  slotCount: number
   name: string
   company: CompanyId
   note: string

@@ -1,14 +1,27 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { BookingDialog } from "@/components/booking-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
-import type { CreateBookingInput } from "@/hooks/use-local-bookings"
-import { COMPANIES, TIME_SLOTS, formatTimeSlot, getCompanyLabel } from "@/lib/constants"
+import type {
+  CreateBookingInput,
+  UpdateBookingInput,
+} from "@/hooks/use-local-bookings"
+import {
+  TIME_SLOTS,
+  buildDaySlotMaps,
+  canPlaceBookingAt,
+  formatTimeRange,
+  formatTimeSlot,
+  getCompanyLabel,
+  getOrderedSlotRange,
+  getResizeSlotCount,
+  getSlotsForBooking,
+} from "@/lib/constants"
 import type { TimeSlot } from "@/lib/constants"
 import type { Booking } from "@/lib/types"
 import {
@@ -24,8 +37,33 @@ type TimetableShellProps = {
   weekStart: Date
   bookings: Booking[] | undefined
   createBooking: (input: CreateBookingInput) => Promise<void>
+  updateBooking: (input: UpdateBookingInput) => Promise<void>
   removeBooking: (id: string) => Promise<void>
   isLocal?: boolean
+}
+
+type SlotSelection = {
+  slotDate: string
+  slotTime: TimeSlot
+  slotCount: number
+  booking?: Booking
+}
+
+type DragPreview = {
+  slotDate: string
+  startTime: TimeSlot
+  endTime: TimeSlot
+}
+
+type ResizePreview = {
+  booking: Booking
+  slotCount: number
+}
+
+type MovePreview = {
+  booking: Booking
+  slotDate: string
+  slotTime: TimeSlot
 }
 
 function companyBadgeVariant(company: string) {
@@ -38,30 +76,279 @@ function companyBadgeVariant(company: string) {
   return "outline" as const
 }
 
+function isSlotInPreview(
+  slotDate: string,
+  slotTime: TimeSlot,
+  preview: DragPreview | null
+) {
+  if (!preview || preview.slotDate !== slotDate) {
+    return false
+  }
+
+  const { startTime, slotCount } = getOrderedSlotRange(
+    preview.startTime,
+    preview.endTime
+  )
+  const slots = getSlotsForBooking(startTime, slotCount)
+
+  return slots.includes(slotTime)
+}
+
 export function TimetableShell({
   weekStart,
   bookings,
   createBooking,
+  updateBooking,
   removeBooking,
   isLocal = false,
 }: TimetableShellProps) {
-  const [selection, setSelection] = useState<{
-    slotDate: string
-    slotTime: TimeSlot
-    booking?: Booking
-  } | null>(null)
+  const [selection, setSelection] = useState<SlotSelection | null>(null)
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null)
+  const [resizePreview, setResizePreview] = useState<ResizePreview | null>(null)
+  const [movePreview, setMovePreview] = useState<MovePreview | null>(null)
+  const isDraggingRef = useRef(false)
+  const isResizingRef = useRef(false)
+  const isMovingRef = useRef(false)
+  const moveDidChangeRef = useRef(false)
+  const dragPreviewRef = useRef<DragPreview | null>(null)
+  const resizePreviewRef = useRef<ResizePreview | null>(null)
+  const movePreviewRef = useRef<MovePreview | null>(null)
 
   const weekDays = useMemo(() => getWeekdayDates(weekStart), [weekStart])
   const previousWeek = shiftWeek(weekStart, -1)
   const nextWeek = shiftWeek(weekStart, 1)
 
-  const bookingMap = useMemo(() => {
-    const map = new Map<string, Booking>()
-    for (const booking of bookings ?? []) {
-      map.set(`${booking.slotDate}_${booking.slotTime}`, booking)
+  const displayBookings = useMemo(() => {
+    const list = bookings ?? []
+
+    if (!movePreview) {
+      return list
     }
-    return map
-  }, [bookings])
+
+    return list.filter((booking) => booking.id !== movePreview.booking.id)
+  }, [bookings, movePreview])
+
+  const daySlotMaps = useMemo(() => {
+    const maps = new Map<
+      string,
+      ReturnType<typeof buildDaySlotMaps<Booking>>
+    >()
+
+    for (const day of weekDays) {
+      const slotDate = toDateKey(day)
+      maps.set(slotDate, buildDaySlotMaps<Booking>(displayBookings, slotDate))
+    }
+
+    return maps
+  }, [displayBookings, weekDays])
+
+  useEffect(() => {
+    dragPreviewRef.current = dragPreview
+  }, [dragPreview])
+
+  useEffect(() => {
+    resizePreviewRef.current = resizePreview
+  }, [resizePreview])
+
+  useEffect(() => {
+    movePreviewRef.current = movePreview
+  }, [movePreview])
+
+  useEffect(() => {
+    function stopPointerInteraction() {
+      if (isResizingRef.current) {
+        const preview = resizePreviewRef.current
+        isResizingRef.current = false
+        setResizePreview(null)
+
+        if (preview && preview.slotCount !== preview.booking.slotCount) {
+          void updateBooking({
+            id: preview.booking.id,
+            slotDate: preview.booking.slotDate,
+            slotTime: preview.booking.slotTime,
+            slotCount: preview.slotCount,
+          })
+        }
+
+        return
+      }
+
+      if (isMovingRef.current) {
+        const preview = movePreviewRef.current
+        const didMove = moveDidChangeRef.current
+        isMovingRef.current = false
+        moveDidChangeRef.current = false
+        setMovePreview(null)
+
+        if (preview && didMove) {
+          void updateBooking({
+            id: preview.booking.id,
+            slotDate: preview.slotDate,
+            slotTime: preview.slotTime,
+            slotCount: preview.booking.slotCount,
+          })
+        } else if (preview) {
+          setSelection({
+            slotDate: preview.booking.slotDate,
+            slotTime: preview.booking.slotTime as TimeSlot,
+            slotCount: preview.booking.slotCount,
+            booking: preview.booking,
+          })
+        }
+
+        return
+      }
+
+      const preview = dragPreviewRef.current
+
+      if (!isDraggingRef.current || !preview) {
+        isDraggingRef.current = false
+        setDragPreview(null)
+        return
+      }
+
+      const dayMaps = daySlotMaps.get(preview.slotDate)
+      const { startTime, slotCount } = getOrderedSlotRange(
+        preview.startTime,
+        preview.endTime
+      )
+      const slots = getSlotsForBooking(startTime, slotCount)
+      const overlaps = slots.some((slotTime) =>
+        dayMaps?.occupiedSlots.has(slotTime)
+      )
+
+      isDraggingRef.current = false
+      setDragPreview(null)
+
+      if (!overlaps) {
+        setSelection({
+          slotDate: preview.slotDate,
+          slotTime: startTime,
+          slotCount,
+        })
+      }
+    }
+
+    window.addEventListener("pointerup", stopPointerInteraction)
+    return () => window.removeEventListener("pointerup", stopPointerInteraction)
+  }, [daySlotMaps, updateBooking])
+
+  function handleSlotPointerDown(
+    slotDate: string,
+    slotTime: TimeSlot,
+    occupiedSlots: Set<string>
+  ) {
+    if (
+      isResizingRef.current ||
+      isMovingRef.current ||
+      occupiedSlots.has(slotTime)
+    ) {
+      return
+    }
+
+    isDraggingRef.current = true
+    setDragPreview({
+      slotDate,
+      startTime: slotTime,
+      endTime: slotTime,
+    })
+  }
+
+  function handleSlotPointerEnter(
+    slotDate: string,
+    slotTime: TimeSlot,
+    dayMaps: ReturnType<typeof buildDaySlotMaps<Booking>>
+  ) {
+    if (isMovingRef.current && movePreviewRef.current) {
+      const booking = movePreviewRef.current.booking
+
+      if (
+        canPlaceBookingAt(
+          slotTime,
+          booking.slotCount,
+          dayMaps.slotToBooking
+        )
+      ) {
+        moveDidChangeRef.current =
+          slotDate !== booking.slotDate || slotTime !== booking.slotTime
+        setMovePreview({
+          booking,
+          slotDate,
+          slotTime,
+        })
+      }
+
+      return
+    }
+
+    if (isResizingRef.current && resizePreviewRef.current) {
+      const preview = resizePreviewRef.current
+      const slotCount = getResizeSlotCount(
+        preview.booking,
+        slotTime,
+        dayMaps.slotToBooking
+      )
+
+      setResizePreview({
+        booking: preview.booking,
+        slotCount,
+      })
+      return
+    }
+
+    if (!isDraggingRef.current || !dragPreview || dragPreview.slotDate !== slotDate) {
+      return
+    }
+
+    const { startTime, endTime, slotCount } = getOrderedSlotRange(
+      dragPreview.startTime,
+      slotTime
+    )
+    const slots = getSlotsForBooking(startTime, slotCount)
+    const overlaps = slots.some((candidate) =>
+      dayMaps.occupiedSlots.has(candidate)
+    )
+
+    if (overlaps) {
+      return
+    }
+
+    setDragPreview({
+      slotDate,
+      startTime: dragPreview.startTime,
+      endTime,
+    })
+  }
+
+  function handleMovePointerDown(
+    event: React.PointerEvent<HTMLButtonElement>,
+    booking: Booking
+  ) {
+    event.preventDefault()
+    event.stopPropagation()
+
+    isMovingRef.current = true
+    moveDidChangeRef.current = false
+    setMovePreview({
+      booking,
+      slotDate: booking.slotDate,
+      slotTime: booking.slotTime as TimeSlot,
+    })
+  }
+
+  function handleResizePointerDown(
+    event: React.PointerEvent<HTMLDivElement>,
+    booking: Booking
+  ) {
+    event.preventDefault()
+    event.stopPropagation()
+
+    isResizingRef.current = true
+    setResizePreview({
+      booking,
+      slotCount: booking.slotCount,
+    })
+  }
 
   if (bookings === undefined) {
     return (
@@ -87,30 +374,29 @@ export function TimetableShell({
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
             <h1 className="text-lg font-medium tracking-tight">Conference room</h1>
-            <p className="text-sm text-muted-foreground">
-              Nilo · First Plug · Volantis
-            </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" render={<Link href={`/?week=${toDateKey(previousWeek)}`} />}>
+            <Button
+              variant="outline"
+              size="sm"
+              nativeButton={false}
+              render={<Link href={`/?week=${toDateKey(previousWeek)}`} />}
+            >
               Previous
             </Button>
             <span className="min-w-36 text-center text-sm text-muted-foreground">
               {formatWeekRange(weekStart)}
             </span>
-            <Button variant="outline" size="sm" render={<Link href={`/?week=${toDateKey(nextWeek)}`} />}>
+            <Button
+              variant="outline"
+              size="sm"
+              nativeButton={false}
+              render={<Link href={`/?week=${toDateKey(nextWeek)}`} />}
+            >
               Next
             </Button>
           </div>
         </header>
-
-        <div className="flex flex-wrap gap-3">
-          {COMPANIES.map((company) => (
-            <Badge key={company.id} variant={companyBadgeVariant(company.id)}>
-              {company.label}
-            </Badge>
-          ))}
-        </div>
 
         <div className="overflow-x-auto rounded-xl border">
           <table className="w-full min-w-[640px] border-collapse text-sm">
@@ -136,49 +422,170 @@ export function TimetableShell({
             </thead>
             <tbody>
               {TIME_SLOTS.map((slotTime) => (
-                <tr key={slotTime} className="border-b last:border-b-0">
-                  <td className="px-3 py-2 align-top text-muted-foreground">
-                    {formatTimeSlot(slotTime)}
+                <tr key={slotTime} className="h-6 border-b last:border-b-0">
+                  <td className="px-3 py-0.5 align-top text-xs text-muted-foreground">
+                    {slotTime.endsWith(":00") ? formatTimeSlot(slotTime) : ""}
                   </td>
                   {weekDays.map((day) => {
                     const slotDate = toDateKey(day)
-                    const booking = bookingMap.get(`${slotDate}_${slotTime}`)
+                    const dayMaps = daySlotMaps.get(slotDate)
+
+                    if (!dayMaps) {
+                      return null
+                    }
+
+                    const resizeForDay =
+                      resizePreview?.booking.slotDate === slotDate
+                        ? resizePreview
+                        : null
+                    const resizePreviewSlots = resizeForDay
+                      ? getSlotsForBooking(
+                          resizeForDay.booking.slotTime,
+                          resizeForDay.slotCount
+                        )
+                      : []
+                    const isResizeContinuation =
+                      resizeForDay !== null &&
+                      resizePreviewSlots.includes(slotTime) &&
+                      resizePreviewSlots[0] !== slotTime
+
+                    const moveForDay =
+                      movePreview?.slotDate === slotDate ? movePreview : null
+                    const movePreviewSlots = moveForDay
+                      ? getSlotsForBooking(
+                          moveForDay.slotTime,
+                          moveForDay.booking.slotCount
+                        )
+                      : []
+                    const isMoveContinuation =
+                      moveForDay !== null &&
+                      movePreviewSlots.includes(slotTime) &&
+                      movePreviewSlots[0] !== slotTime
+
+                    if (
+                      dayMaps.continuationSlots.has(slotTime) ||
+                      isResizeContinuation ||
+                      isMoveContinuation
+                    ) {
+                      return null
+                    }
+
+                    const booking = dayMaps.startBySlot.get(slotTime)
+                    const isMovePreviewStart =
+                      moveForDay?.slotTime === slotTime
+                    const isResizePreviewStart =
+                      resizeForDay?.booking.slotTime === slotTime
+                    const displayBooking =
+                      booking ??
+                      (isMovePreviewStart
+                        ? moveForDay?.booking
+                        : isResizePreviewStart
+                          ? resizeForDay?.booking
+                          : undefined)
+                    const slotCount = isMovePreviewStart
+                      ? moveForDay!.booking.slotCount
+                      : isResizePreviewStart && resizeForDay
+                        ? resizeForDay.slotCount
+                        : booking?.slotCount ?? 1
+                    const previewActive = isSlotInPreview(
+                      slotDate,
+                      slotTime,
+                      dragPreview
+                    )
+                    const moveActive =
+                      moveForDay !== null &&
+                      displayBooking?.id === moveForDay.booking.id
+                    const resizeActive =
+                      resizeForDay !== null &&
+                      displayBooking?.id === resizeForDay.booking.id
 
                     return (
-                      <td key={`${slotDate}_${slotTime}`} className="p-1 align-top">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSelection({
-                              slotDate,
-                              slotTime,
-                              booking,
-                            })
-                          }
-                          className={cn(
-                            "flex min-h-14 w-full flex-col gap-1 rounded-lg border border-transparent px-2 py-2 text-left transition-colors hover:bg-muted/50",
-                            booking && "border-border bg-muted/20"
-                          )}
-                        >
-                          {booking ? (
-                            <>
-                              <span className="truncate font-medium">{booking.name}</span>
+                      <td
+                        key={`${slotDate}_${slotTime}`}
+                        rowSpan={displayBooking ? slotCount : 1}
+                        className={cn(
+                          "p-0.5 align-top",
+                          displayBooking && "relative h-px"
+                        )}
+                      >
+                        {displayBooking ? (
+                          <div
+                            className={cn(
+                              "absolute inset-0.5 flex flex-col rounded-md border bg-muted/20",
+                              moveActive || resizeActive
+                                ? "border-primary/40 ring-1 ring-primary/20"
+                                : "border-border"
+                            )}
+                          >
+                            <button
+                              type="button"
+                              onPointerDown={(event) =>
+                                handleMovePointerDown(event, displayBooking)
+                              }
+                              onPointerEnter={() =>
+                                handleSlotPointerEnter(
+                                  slotDate,
+                                  slotTime,
+                                  dayMaps
+                                )
+                              }
+                              className="flex min-h-0 flex-1 cursor-grab flex-col gap-1 px-2 py-1 text-left active:cursor-grabbing"
+                            >
+                              <span className="truncate text-sm font-medium">
+                                {displayBooking.name}
+                              </span>
                               <Badge
-                                variant={companyBadgeVariant(booking.company)}
+                                variant={companyBadgeVariant(displayBooking.company)}
                                 className="w-fit"
                               >
-                                {getCompanyLabel(booking.company)}
+                                {getCompanyLabel(displayBooking.company)}
                               </Badge>
-                              {booking.note ? (
-                                <span className="truncate text-xs text-muted-foreground">
-                                  {booking.note}
+                              <span className="text-xs text-muted-foreground">
+                                {formatTimeRange(
+                                  isMovePreviewStart
+                                    ? moveForDay!.slotTime
+                                    : displayBooking.slotTime,
+                                  slotCount
+                                )}
+                              </span>
+                              {displayBooking.note ? (
+                                <span className="line-clamp-3 text-xs text-muted-foreground">
+                                  {displayBooking.note}
                                 </span>
                               ) : null}
-                            </>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Available</span>
-                          )}
-                        </button>
+                            </button>
+                            <div
+                              aria-label="Drag to extend booking"
+                              onPointerDown={(event) =>
+                                handleResizePointerDown(event, displayBooking)
+                              }
+                              className="absolute inset-x-1 bottom-0 z-10 h-2.5 shrink-0 cursor-ns-resize rounded-b-md hover:bg-primary/30 active:bg-primary/40"
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onPointerDown={() =>
+                              handleSlotPointerDown(
+                                slotDate,
+                                slotTime,
+                                dayMaps.occupiedSlots
+                              )
+                            }
+                            onPointerEnter={() =>
+                              handleSlotPointerEnter(
+                                slotDate,
+                                slotTime,
+                                dayMaps
+                              )
+                            }
+                            className={cn(
+                              "block h-6 w-full rounded-md border border-transparent transition-colors hover:bg-muted/50",
+                              previewActive &&
+                                "border-primary/40 bg-primary/10 ring-1 ring-primary/20"
+                            )}
+                          />
+                        )}
                       </td>
                     )
                   })}

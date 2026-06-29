@@ -3,13 +3,22 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react"
 
 import type { CompanyId, TimeSlot } from "@/lib/constants"
+import { getSlotsForBooking } from "@/lib/constants"
 import type { Booking } from "@/lib/types"
 
 const STORAGE_KEY = "conference-room-local-bookings"
 
+export type UpdateBookingInput = {
+  id: string
+  slotDate: string
+  slotTime: TimeSlot
+  slotCount: number
+}
+
 export type CreateBookingInput = {
   slotDate: string
   slotTime: TimeSlot
+  slotCount: number
   name: string
   company: CompanyId
   note: string
@@ -26,10 +35,22 @@ function sortBookings(bookings: Booking[]) {
 function readBookings(): Booking[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
-    return stored ? (JSON.parse(stored) as Booking[]) : []
+    const parsed = stored ? (JSON.parse(stored) as Booking[]) : []
+    return parsed.map((booking) => ({
+      ...booking,
+      slotCount: booking.slotCount ?? 1,
+    }))
   } catch {
     return []
   }
+}
+
+function bookingOccupiesSlot(booking: Booking, slotDate: string, slotTime: string) {
+  if (booking.slotDate !== slotDate) {
+    return false
+  }
+
+  return getSlotsForBooking(booking.slotTime, booking.slotCount).includes(slotTime)
 }
 
 let bookingsStore: Booking[] = []
@@ -50,8 +71,10 @@ function getSnapshot() {
   return bookingsStore
 }
 
+const SERVER_SNAPSHOT: Booking[] = []
+
 function getServerSnapshot() {
-  return [] as Booking[]
+  return SERVER_SNAPSHOT
 }
 
 function writeBookings(next: Booking[]) {
@@ -78,12 +101,18 @@ export function useLocalBookings(startDate: string, endDate: string) {
   )
 
   const createBooking = useCallback(async (input: CreateBookingInput) => {
-    const duplicate = bookingsStore.some(
-      (booking) =>
-        booking.slotDate === input.slotDate && booking.slotTime === input.slotTime
+    const slotCount = Math.max(1, input.slotCount)
+    const slots = getSlotsForBooking(input.slotTime, slotCount)
+
+    if (slots.length !== slotCount) {
+      throw new Error("That booking extends beyond the available hours.")
+    }
+
+    const hasConflict = bookingsStore.some((booking) =>
+      slots.some((slotTime) => bookingOccupiesSlot(booking, input.slotDate, slotTime))
     )
 
-    if (duplicate) {
+    if (hasConflict) {
       throw new Error("That slot is already booked.")
     }
 
@@ -92,6 +121,7 @@ export function useLocalBookings(startDate: string, endDate: string) {
       {
         id: crypto.randomUUID(),
         ...input,
+        slotCount,
         createdAt: new Date().toISOString(),
       },
     ])
@@ -101,9 +131,50 @@ export function useLocalBookings(startDate: string, endDate: string) {
     writeBookings(bookingsStore.filter((booking) => booking.id !== id))
   }, [])
 
+  const updateBooking = useCallback(async (input: UpdateBookingInput) => {
+    const booking = bookingsStore.find((candidate) => candidate.id === input.id)
+
+    if (!booking) {
+      throw new Error("Booking not found.")
+    }
+
+    const slotCount = Math.max(1, input.slotCount)
+    const slots = getSlotsForBooking(input.slotTime, slotCount)
+
+    if (slots.length !== slotCount) {
+      throw new Error("That booking extends beyond the available hours.")
+    }
+
+    const hasConflict = bookingsStore.some(
+      (candidate) =>
+        candidate.id !== booking.id &&
+        slots.some((slotTime) =>
+          bookingOccupiesSlot(candidate, input.slotDate, slotTime)
+        )
+    )
+
+    if (hasConflict) {
+      throw new Error("That slot is already booked.")
+    }
+
+    writeBookings(
+      bookingsStore.map((candidate) =>
+        candidate.id === booking.id
+          ? {
+              ...candidate,
+              slotDate: input.slotDate,
+              slotTime: input.slotTime,
+              slotCount,
+            }
+          : candidate
+      )
+    )
+  }, [])
+
   return {
     bookings,
     createBooking,
     removeBooking,
+    updateBooking,
   }
 }
