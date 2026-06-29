@@ -2,10 +2,13 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
+import { useQuery } from "convex/react"
 
+import { api } from "@/convex/_generated/api"
 import { BookingDialog } from "@/components/booking-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { COMPANIES, TIME_SLOTS, formatTimeSlot, getCompanyLabel } from "@/lib/constants"
 import type { TimeSlot } from "@/lib/constants"
 import type { Booking } from "@/lib/types"
@@ -20,7 +23,6 @@ import { cn } from "@/lib/utils"
 
 type TimetableProps = {
   weekStart: Date
-  bookings: Booking[]
 }
 
 function companyBadgeVariant(company: string) {
@@ -33,7 +35,7 @@ function companyBadgeVariant(company: string) {
   return "outline" as const
 }
 
-export function Timetable({ weekStart, bookings }: TimetableProps) {
+export function Timetable({ weekStart }: TimetableProps) {
   const [selection, setSelection] = useState<{
     slotDate: string
     slotTime: TimeSlot
@@ -41,16 +43,28 @@ export function Timetable({ weekStart, bookings }: TimetableProps) {
   } | null>(null)
 
   const weekDays = useMemo(() => getWeekdayDates(weekStart), [weekStart])
+  const startDate = toDateKey(weekDays[0])
+  const endDate = toDateKey(weekDays[4])
+  const bookings = useQuery(api.bookings.listForWeek, { startDate, endDate })
 
   const bookingMap = useMemo(() => {
     const map = new Map<string, Booking>()
-    for (const booking of bookings) {
-      map.set(`${booking.slotDate}_${booking.slotTime}`, booking)
+    for (const booking of bookings ?? []) {
+      map.set(`${booking.slotDate}_${booking.slotTime}`, booking as Booking)
     }
     return map
   }, [bookings])
 
+  const previousWeek = shiftWeek(weekStart, -1)
   const nextWeek = shiftWeek(weekStart, 1)
+
+  if (bookings === undefined) {
+    return (
+      <div className="flex min-h-svh items-center justify-center">
+        <Spinner />
+      </div>
+    )
+  }
 
   return (
     <>

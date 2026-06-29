@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useState } from "react"
+import { useMutation } from "convex/react"
 
-import { bookSlot, removeBooking } from "@/lib/actions"
+import { api } from "@/convex/_generated/api"
 import { COMPANIES, formatTimeSlot, getCompanyLabel } from "@/lib/constants"
-import type { TimeSlot } from "@/lib/constants"
+import type { CompanyId, TimeSlot } from "@/lib/constants"
 import type { Booking } from "@/lib/types"
 import { formatDay, formatWeekday } from "@/lib/week"
 import { Badge } from "@/components/ui/badge"
@@ -46,7 +47,10 @@ export function BookingDialog({ selection, onClose }: BookingDialogProps) {
   const [company, setCompany] = useState<string>("")
   const [note, setNote] = useState("")
   const [error, setError] = useState<string | null>(null)
-  const [isPending, startTransition] = useTransition()
+  const [isPending, setIsPending] = useState(false)
+
+  const createBooking = useMutation(api.bookings.create)
+  const removeBooking = useMutation(api.bookings.remove)
 
   const open = selection !== null
   const booking = selection?.booking
@@ -65,46 +69,49 @@ export function BookingDialog({ selection, onClose }: BookingDialogProps) {
     }
   }
 
-  function handleBook(event: React.FormEvent<HTMLFormElement>) {
+  async function handleBook(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!selection) {
       return
     }
 
-    startTransition(async () => {
-      const formData = new FormData()
-      formData.set("slotDate", selection.slotDate)
-      formData.set("slotTime", selection.slotTime)
-      formData.set("name", name)
-      formData.set("company", company)
-      formData.set("note", note)
+    setIsPending(true)
+    setError(null)
 
-      const result = await bookSlot(formData)
-      if (result.error) {
-        setError(result.error)
-        return
-      }
-
+    try {
+      await createBooking({
+        slotDate: selection.slotDate,
+        slotTime: selection.slotTime,
+        name,
+        company: company as CompanyId,
+        note,
+      })
       resetForm()
       onClose()
-    })
+    } catch {
+      setError("That slot is already booked.")
+    } finally {
+      setIsPending(false)
+    }
   }
 
-  function handleRemove() {
+  async function handleRemove() {
     if (!booking) {
       return
     }
 
-    startTransition(async () => {
-      const result = await removeBooking(booking.id)
-      if (result.error) {
-        setError(result.error)
-        return
-      }
+    setIsPending(true)
+    setError(null)
 
+    try {
+      await removeBooking({ id: booking.id })
       resetForm()
       onClose()
-    })
+    } catch {
+      setError("Could not remove booking.")
+    } finally {
+      setIsPending(false)
+    }
   }
 
   const slotLabel =
