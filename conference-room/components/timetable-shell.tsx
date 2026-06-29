@@ -12,7 +12,6 @@ import type {
   UpdateBookingInput,
 } from "@/hooks/use-local-bookings"
 import {
-  COMPANIES,
   TIME_SLOTS,
   buildDaySlotMaps,
   formatTimeRange,
@@ -319,19 +318,6 @@ export function TimetableShell({
             </Button>
           </div>
         </header>
-
-        <div className="flex flex-wrap gap-3">
-          {COMPANIES.map((company) => (
-            <Badge key={company.id} variant={companyBadgeVariant(company.id)}>
-              {company.label}
-            </Badge>
-          ))}
-        </div>
-
-        <p className="text-xs text-muted-foreground">
-          Drag on empty slots to book, or drag the bottom edge of a booking to
-          extend it. Slots are 15 minutes.
-        </p>
 
         <div className="overflow-x-auto rounded-xl border">
           <table className="w-full min-w-[640px] border-collapse text-sm">
