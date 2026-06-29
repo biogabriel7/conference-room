@@ -1,9 +1,7 @@
-import type { Id } from "@/convex/_generated/dataModel"
-
 import type { CompanyId, TimeSlot } from "@/lib/constants"
 
 export type Booking = {
-  id: Id<"bookings">
+  id: string
   slotDate: string
   slotTime: TimeSlot
   name: string

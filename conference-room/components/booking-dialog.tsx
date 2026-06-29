@@ -1,11 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { useMutation } from "convex/react"
 
-import { api } from "@/convex/_generated/api"
 import { COMPANIES, formatTimeSlot, getCompanyLabel } from "@/lib/constants"
 import type { CompanyId, TimeSlot } from "@/lib/constants"
+import type { CreateBookingInput } from "@/hooks/use-local-bookings"
 import type { Booking } from "@/lib/types"
 import { formatDay, formatWeekday } from "@/lib/week"
 import { Badge } from "@/components/ui/badge"
@@ -40,17 +39,21 @@ type SlotSelection = {
 type BookingDialogProps = {
   selection: SlotSelection | null
   onClose: () => void
+  createBooking: (input: CreateBookingInput) => Promise<void>
+  removeBooking: (id: string) => Promise<void>
 }
 
-export function BookingDialog({ selection, onClose }: BookingDialogProps) {
+export function BookingDialog({
+  selection,
+  onClose,
+  createBooking,
+  removeBooking,
+}: BookingDialogProps) {
   const [name, setName] = useState("")
   const [company, setCompany] = useState<string>("")
   const [note, setNote] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [isPending, setIsPending] = useState(false)
-
-  const createBooking = useMutation(api.bookings.create)
-  const removeBooking = useMutation(api.bookings.remove)
 
   const open = selection !== null
   const booking = selection?.booking
@@ -104,7 +107,7 @@ export function BookingDialog({ selection, onClose }: BookingDialogProps) {
     setError(null)
 
     try {
-      await removeBooking({ id: booking.id })
+      await removeBooking(booking.id)
       resetForm()
       onClose()
     } catch {

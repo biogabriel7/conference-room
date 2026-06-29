@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "convex dev --run 'npm run dev:frontend'",
+    "dev": "convex dev --start 'npm run dev:frontend'",
     "dev:frontend": "next dev",
     "build": "next build",
     "start": "next start",
