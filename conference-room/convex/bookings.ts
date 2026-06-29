@@ -127,6 +127,8 @@ export const create = mutation({
 export const update = mutation({
   args: {
     id: v.id("bookings"),
+    slotDate: v.string(),
+    slotTime: v.string(),
     slotCount: v.number(),
   },
   handler: async (ctx, args) => {
@@ -137,7 +139,7 @@ export const update = mutation({
     }
 
     const slotCount = Math.max(1, args.slotCount)
-    const slots = getSlotsForBooking(booking.slotTime, slotCount)
+    const slots = getSlotsForBooking(args.slotTime, slotCount)
 
     if (slots.length !== slotCount) {
       throw new Error("That booking extends beyond the available hours.")
@@ -145,7 +147,7 @@ export const update = mutation({
 
     const dayBookings = await ctx.db
       .query("bookings")
-      .withIndex("by_slot_date", (q) => q.eq("slotDate", booking.slotDate))
+      .withIndex("by_slot_date", (q) => q.eq("slotDate", args.slotDate))
       .collect()
 
     for (const slotTime of slots) {
@@ -159,7 +161,11 @@ export const update = mutation({
       }
     }
 
-    await ctx.db.patch(args.id, { slotCount })
+    await ctx.db.patch(args.id, {
+      slotDate: args.slotDate,
+      slotTime: args.slotTime,
+      slotCount,
+    })
   },
 })
 

@@ -10,6 +10,8 @@ const STORAGE_KEY = "conference-room-local-bookings"
 
 export type UpdateBookingInput = {
   id: string
+  slotDate: string
+  slotTime: TimeSlot
   slotCount: number
 }
 
@@ -137,7 +139,7 @@ export function useLocalBookings(startDate: string, endDate: string) {
     }
 
     const slotCount = Math.max(1, input.slotCount)
-    const slots = getSlotsForBooking(booking.slotTime, slotCount)
+    const slots = getSlotsForBooking(input.slotTime, slotCount)
 
     if (slots.length !== slotCount) {
       throw new Error("That booking extends beyond the available hours.")
@@ -146,7 +148,9 @@ export function useLocalBookings(startDate: string, endDate: string) {
     const hasConflict = bookingsStore.some(
       (candidate) =>
         candidate.id !== booking.id &&
-        slots.some((slotTime) => bookingOccupiesSlot(candidate, booking.slotDate, slotTime))
+        slots.some((slotTime) =>
+          bookingOccupiesSlot(candidate, input.slotDate, slotTime)
+        )
     )
 
     if (hasConflict) {
@@ -155,7 +159,14 @@ export function useLocalBookings(startDate: string, endDate: string) {
 
     writeBookings(
       bookingsStore.map((candidate) =>
-        candidate.id === booking.id ? { ...candidate, slotCount } : candidate
+        candidate.id === booking.id
+          ? {
+              ...candidate,
+              slotDate: input.slotDate,
+              slotTime: input.slotTime,
+              slotCount,
+            }
+          : candidate
       )
     )
   }, [])

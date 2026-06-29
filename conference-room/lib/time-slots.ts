@@ -100,6 +100,20 @@ export function formatTimeRange(startTime: string, slotCount: number) {
   return `${start} – ${end}`
 }
 
+export function canPlaceBookingAt(
+  slotTime: string,
+  slotCount: number,
+  slotToBooking: Map<string, BookingLike>
+) {
+  const slots = getSlotsForBooking(slotTime, slotCount)
+
+  if (slots.length !== slotCount) {
+    return false
+  }
+
+  return slots.every((slot) => !slotToBooking.has(slot))
+}
+
 export function getResizeSlotCount(
   booking: BookingLike,
   targetSlotTime: string,

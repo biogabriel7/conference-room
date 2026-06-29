@@ -15,6 +15,7 @@ export {
   getSlotCount,
   getSlotsForBooking,
   buildDaySlotMaps,
+  canPlaceBookingAt,
   getResizeSlotCount,
 } from "@/lib/time-slots"
 

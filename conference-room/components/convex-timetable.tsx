@@ -32,6 +32,8 @@ export function ConvexTimetable({ weekStart }: ConvexTimetableProps) {
       updateBooking={async (input) => {
         await updateBookingMutation({
           id: input.id as Id<"bookings">,
+          slotDate: input.slotDate,
+          slotTime: input.slotTime,
           slotCount: input.slotCount,
         })
       }}
