@@ -50,8 +50,10 @@ function getSnapshot() {
   return bookingsStore
 }
 
+const SERVER_SNAPSHOT: Booking[] = []
+
 function getServerSnapshot() {
-  return [] as Booking[]
+  return SERVER_SNAPSHOT
 }
 
 function writeBookings(next: Booking[]) {

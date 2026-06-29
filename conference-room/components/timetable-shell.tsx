@@ -92,13 +92,23 @@ export function TimetableShell({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" render={<Link href={`/?week=${toDateKey(previousWeek)}`} />}>
+            <Button
+              variant="outline"
+              size="sm"
+              nativeButton={false}
+              render={<Link href={`/?week=${toDateKey(previousWeek)}`} />}
+            >
               Previous
             </Button>
             <span className="min-w-36 text-center text-sm text-muted-foreground">
               {formatWeekRange(weekStart)}
             </span>
-            <Button variant="outline" size="sm" render={<Link href={`/?week=${toDateKey(nextWeek)}`} />}>
+            <Button
+              variant="outline"
+              size="sm"
+              nativeButton={false}
+              render={<Link href={`/?week=${toDateKey(nextWeek)}`} />}
+            >
               Next
             </Button>
           </div>
