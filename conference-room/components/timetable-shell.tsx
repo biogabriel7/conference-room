@@ -357,7 +357,7 @@ export function TimetableShell({
             </thead>
             <tbody>
               {TIME_SLOTS.map((slotTime) => (
-                <tr key={slotTime} className="border-b last:border-b-0">
+                <tr key={slotTime} className="h-6 border-b last:border-b-0">
                   <td className="px-3 py-0.5 align-top text-xs text-muted-foreground">
                     {slotTime.endsWith(":00") ? formatTimeSlot(slotTime) : ""}
                   </td>
@@ -413,12 +413,15 @@ export function TimetableShell({
                       <td
                         key={`${slotDate}_${slotTime}`}
                         rowSpan={displayBooking ? slotCount : 1}
-                        className="p-0.5 align-top"
+                        className={cn(
+                          "p-0.5 align-top",
+                          displayBooking && "relative h-px"
+                        )}
                       >
                         {displayBooking ? (
                           <div
                             className={cn(
-                              "relative flex h-full min-h-6 w-full flex-col rounded-md border bg-muted/20",
+                              "absolute inset-0.5 flex flex-col rounded-md border bg-muted/20",
                               resizeActive
                                 ? "border-primary/40 ring-1 ring-primary/20"
                                 : "border-border"
@@ -427,7 +430,7 @@ export function TimetableShell({
                             <button
                               type="button"
                               onClick={() => handleBookedSlotClick(displayBooking)}
-                              className="flex flex-1 flex-col gap-1 px-2 py-1 text-left"
+                              className="flex min-h-0 flex-1 flex-col gap-1 px-2 py-1 text-left"
                             >
                               <span className="truncate text-sm font-medium">
                                 {displayBooking.name}
@@ -445,7 +448,7 @@ export function TimetableShell({
                                 )}
                               </span>
                               {displayBooking.note ? (
-                                <span className="truncate text-xs text-muted-foreground">
+                                <span className="line-clamp-3 text-xs text-muted-foreground">
                                   {displayBooking.note}
                                 </span>
                               ) : null}
@@ -455,7 +458,7 @@ export function TimetableShell({
                               onPointerDown={(event) =>
                                 handleResizePointerDown(event, displayBooking)
                               }
-                              className="absolute inset-x-1 bottom-0 z-10 h-2.5 cursor-ns-resize rounded-b-md hover:bg-primary/30 active:bg-primary/40"
+                              className="absolute inset-x-1 bottom-0 z-10 h-2.5 shrink-0 cursor-ns-resize rounded-b-md hover:bg-primary/30 active:bg-primary/40"
                             />
                           </div>
                         ) : (
@@ -476,7 +479,7 @@ export function TimetableShell({
                               )
                             }
                             className={cn(
-                              "block h-full min-h-6 w-full rounded-md border border-transparent transition-colors hover:bg-muted/50",
+                              "block h-6 w-full rounded-md border border-transparent transition-colors hover:bg-muted/50",
                               previewActive &&
                                 "border-primary/40 bg-primary/10 ring-1 ring-primary/20"
                             )}
