@@ -69,16 +69,53 @@ function getBuenosAiresNow(now: number) {
   }
 }
 
-function assertNotPastSlot(slotDate: string, slotTime: string, now: number) {
+function isPastSlotAt(
+  slotDate: string,
+  slotTime: string,
+  now: number
+) {
   const { dateKey, minutes } = getBuenosAiresNow(now)
 
   if (slotDate < dateKey) {
-    throw new Error("That time slot is in the past.")
+    return true
   }
 
-  if (slotDate === dateKey && timeToMinutes(slotTime) < minutes) {
-    throw new Error("That time slot is in the past.")
+  if (slotDate > dateKey) {
+    return false
   }
+
+  return timeToMinutes(slotTime) < minutes
+}
+
+const BOOKING_GRACE_PERIOD_MS = 30_000
+
+function isBookingInGracePeriod(
+  booking: { createdAt: number; slotChangedAt?: number },
+  now: number
+) {
+  const anchor = Math.max(
+    booking.createdAt,
+    booking.slotChangedAt ?? booking.createdAt
+  )
+
+  return now - anchor <= BOOKING_GRACE_PERIOD_MS
+}
+
+function assertNotPastSlot(
+  slotDate: string,
+  slotTime: string,
+  now: number,
+  booking?: { createdAt: number; slotChangedAt?: number }
+) {
+  if (!isPastSlotAt(slotDate, slotTime, now)) {
+    return
+  }
+
+  if (booking && isBookingInGracePeriod(booking, now)) {
+    return
+  }
+
+  throw new Error("That time slot is in the past.")
 }
 
 export const listForWeek = query({
@@ -101,6 +138,9 @@ export const listForWeek = query({
         slotCount: booking.slotCount ?? 1,
         slotTime: booking.slotTime,
         createdAt: new Date(booking.createdAt).toISOString(),
+        slotChangedAt: booking.slotChangedAt
+          ? new Date(booking.slotChangedAt).toISOString()
+          : new Date(booking.createdAt).toISOString(),
       }))
       .sort((a, b) =>
         a.slotDate === b.slotDate
@@ -136,7 +176,9 @@ export const create = mutation({
       throw new Error("Name is required.")
     }
 
-    assertNotPastSlot(args.slotDate, args.slotTime, Date.now())
+    const now = Date.now()
+
+    assertNotPastSlot(args.slotDate, args.slotTime, now)
 
     const dayBookings = await ctx.db
       .query("bookings")
@@ -160,7 +202,8 @@ export const create = mutation({
       name,
       company: args.company,
       note: args.note.trim(),
-      createdAt: Date.now(),
+      createdAt: now,
+      slotChangedAt: now,
     })
   },
 })
@@ -186,7 +229,9 @@ export const update = mutation({
       throw new Error("That booking extends beyond the available hours.")
     }
 
-    assertNotPastSlot(args.slotDate, args.slotTime, Date.now())
+    const now = Date.now()
+
+    assertNotPastSlot(args.slotDate, args.slotTime, now, booking)
 
     const dayBookings = await ctx.db
       .query("bookings")
@@ -208,6 +253,7 @@ export const update = mutation({
       slotDate: args.slotDate,
       slotTime: args.slotTime,
       slotCount,
+      slotChangedAt: now,
     })
   },
 })

@@ -40,7 +40,7 @@ import {
 } from "@/lib/constants"
 import type { TimeSlot } from "@/lib/constants"
 import type { Booking } from "@/lib/types"
-import { getBookingErrorMessage, isPastSlot } from "@/lib/slot-validation"
+import { getBookingErrorMessage, isPastSlotBlocked } from "@/lib/slot-validation"
 import {
   formatWeekRange,
   formatWeekday,
@@ -233,7 +233,11 @@ export function TimetableShell({
       const overlaps = slots.some((slotTime) =>
         dayMaps?.occupiedSlots.has(slotTime)
       )
-      const past = isPastSlot(preview.slotDate, startTime, getBuenosAiresNow())
+      const past = isPastSlotBlocked(
+        preview.slotDate,
+        startTime,
+        getBuenosAiresNow()
+      )
 
       isDraggingRef.current = false
       syncDragPreview(null)
@@ -262,7 +266,7 @@ export function TimetableShell({
         isResizingRef.current ||
         isMovingRef.current ||
         occupiedSlots.has(slotTime) ||
-        isPastSlot(slotDate, slotTime, now)
+        isPastSlotBlocked(slotDate, slotTime, now)
       ) {
         return
       }
@@ -287,7 +291,7 @@ export function TimetableShell({
         const booking = movePreviewRef.current.booking
 
         if (
-          !isPastSlot(slotDate, slotTime, now) &&
+          !isPastSlotBlocked(slotDate, slotTime, now, booking) &&
           canPlaceBookingAt(slotTime, booking.slotCount, dayMaps.slotToBooking)
         ) {
           moveDidChangeRef.current =
@@ -328,7 +332,7 @@ export function TimetableShell({
         slotTime
       )
 
-      if (isPastSlot(slotDate, startTime, now)) {
+      if (isPastSlotBlocked(slotDate, startTime, now)) {
         return
       }
 

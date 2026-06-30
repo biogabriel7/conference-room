@@ -8,7 +8,7 @@ import type { TimeSlot } from "@/lib/constants"
 import type { SlotMetrics } from "@/lib/booking-block-motion"
 import type { Booking } from "@/lib/types"
 import type { BuenosAiresNow } from "@/lib/buenos-aires"
-import { isPastSlot } from "@/lib/slot-validation"
+import { isPastSlotBlocked } from "@/lib/slot-validation"
 import { toDateKey } from "@/lib/week"
 import { cn } from "@/lib/utils"
 
@@ -123,7 +123,7 @@ export const TimetableRow = memo(function TimetableRow({
         const moveActive =
           moveForDay !== null && displayBooking?.id === moveForDay.booking.id
         const useOverlay = moveActive && Boolean(metrics)
-        const slotIsPast = isPastSlot(slotDate, slotTime, now)
+        const slotIsPast = isPastSlotBlocked(slotDate, slotTime, now)
 
         return (
           <td
