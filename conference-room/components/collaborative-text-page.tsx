@@ -61,6 +61,7 @@ export function CollaborativeTextPage() {
   const [hasInitializedDraft, setHasInitializedDraft] = useState(false)
   const [reviewMode, setReviewMode] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
+  const [resetArmed, setResetArmed] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -81,6 +82,7 @@ export function CollaborativeTextPage() {
   const restoreToEdit = useMutation(api.text.restoreToEdit)
   const lockDocument = useMutation(api.text.lockDocument)
   const reopenDocument = useMutation(api.text.reopenDocument)
+  const resetDocument = useMutation(api.text.resetDocument)
 
   const handleRestore = useCallback(
     async (editId: Id<"textEdits">) => {
@@ -159,6 +161,29 @@ export function CollaborativeTextPage() {
       setError("Could not copy the link.")
     }
   }, [])
+
+  const handleResetDemo = useCallback(async () => {
+    // Two-click guard: arm first, then reset — avoids wiping a live session.
+    if (!resetArmed) {
+      setResetArmed(true)
+      window.setTimeout(() => setResetArmed(false), 3_000)
+      return
+    }
+
+    setResetArmed(false)
+
+    try {
+      await resetDocument({})
+      setReviewMode(false)
+      setError(null)
+    } catch (resetError) {
+      setError(
+        resetError instanceof Error
+          ? resetError.message
+          : "Could not reset the demo."
+      )
+    }
+  }, [resetArmed, resetDocument])
 
   const getCursor = useCallback(() => {
     const textarea = textareaRef.current
@@ -376,6 +401,14 @@ export function CollaborativeTextPage() {
               onClick={() => setShowAuthorship((value) => !value)}
             >
               {showAuthorship ? "Hide authorship" : "Show authorship"}
+            </Button>
+            <Button
+              variant={resetArmed ? "destructive" : "ghost"}
+              size="sm"
+              onClick={() => void handleResetDemo()}
+              title="Wipe edits and reseed the report"
+            >
+              {resetArmed ? "Confirm reset" : "Reset demo"}
             </Button>
           </div>
         </header>
