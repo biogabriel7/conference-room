@@ -38,8 +38,13 @@ export default defineSchema({
     name: v.string(),
     company,
     summary: v.string(),
+    baselineText: v.optional(v.string()),
+    snapshot: v.optional(v.array(textSegment)),
     createdAt: v.number(),
-  }).index("by_slug_created", ["slug", "createdAt"]),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_slug_created", ["slug", "createdAt"])
+    .index("by_slug_session", ["slug", "sessionId"]),
   bookings: defineTable({
     slotDate: v.string(),
     slotTime: v.string(),

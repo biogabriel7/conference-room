@@ -11,6 +11,12 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { api } from "@/convex/_generated/api"
+import type { Id } from "@/convex/_generated/dataModel"
+import {
+  PRESENCE_KEEPALIVE_MS,
+  PRESENCE_QUERY_TICK_MS,
+  useCollaborativeTextSync,
+} from "@/hooks/use-collaborative-text-sync"
 import { getCompanyLabel } from "@/lib/constants"
 import type { CompanyId } from "@/lib/constants"
 import { isConvexEnabled } from "@/lib/convex-config"
@@ -20,15 +26,11 @@ import {
   type AttributedSegment,
 } from "@/lib/text-authorship"
 import {
-  computeTextDiff,
   getStoredTextIdentity,
   getTextSessionId,
   type TextIdentity,
 } from "@/lib/text-session"
 import { cn } from "@/lib/utils"
-
-const PRESENCE_INTERVAL_MS = 4_000
-const PRESENCE_QUERY_TICK_MS = 10_000
 
 function formatRelativeTime(timestamp: number, now: number) {
   const deltaSeconds = Math.max(0, Math.floor((now - timestamp) / 1000))
@@ -55,21 +57,79 @@ export function CollaborativeTextPage() {
   const [draftText, setDraftText] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [showAuthorship, setShowAuthorship] = useState(true)
+  const [hasInitializedDraft, setHasInitializedDraft] = useState(false)
 
-  const baselineTextRef = useRef("")
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const isFocusedRef = useRef(false)
-  const lastInteractionRef = useRef(0)
-  const pendingMutationRef = useRef(false)
 
-  const document = useQuery(
-    api.text.getDocument,
+  const textContent = useQuery(
+    api.text.getTextContent,
+    isConvexEnabled ? {} : "skip"
+  )
+  const textMeta = useQuery(
+    api.text.getTextMeta,
     isConvexEnabled ? { now } : "skip"
   )
+
   const ensureDocument = useMutation(api.text.ensureDocument)
   const applyEdit = useMutation(api.text.applyEdit)
+  const recordEditBurst = useMutation(api.text.recordEditBurst)
   const updatePresence = useMutation(api.text.updatePresence)
   const leavePresence = useMutation(api.text.leavePresence)
+  const restoreToEdit = useMutation(api.text.restoreToEdit)
+
+  const handleRestore = useCallback(
+    async (editId: Id<"textEdits">) => {
+      if (!identity) {
+        return
+      }
+
+      try {
+        await restoreToEdit({
+          editId,
+          sessionId: identity.sessionId,
+          name: identity.name,
+          company: identity.company,
+        })
+        setError(null)
+      } catch (restoreError) {
+        setError(
+          restoreError instanceof Error
+            ? restoreError.message
+            : "Could not restore that version."
+        )
+      }
+    },
+    [identity, restoreToEdit]
+  )
+
+  const getCursor = useCallback(() => {
+    const textarea = textareaRef.current
+    const cursor = textarea?.selectionStart ?? draftText.length
+
+    return {
+      cursor,
+      selectionStart: textarea?.selectionStart ?? cursor,
+      selectionEnd: textarea?.selectionEnd ?? cursor,
+    }
+  }, [draftText.length])
+
+  const {
+    handleDraftChange,
+    handleFocus,
+    handleBlur,
+    handleCursorChange,
+    initializeDraft,
+    pushPresence,
+    isFocusedRef,
+    lastInteractionRef,
+  } = useCollaborativeTextSync({
+    identity,
+    remoteContent: textContent?.content,
+    applyEdit,
+    recordEditBurst,
+    updatePresence,
+    getCursor,
+  })
 
   useEffect(() => {
     const stored = getStoredTextIdentity()
@@ -99,59 +159,49 @@ export function CollaborativeTextPage() {
   }, [])
 
   useEffect(() => {
-    if (!document || pendingMutationRef.current) {
+    if (!textContent || hasInitializedDraft) {
       return
     }
 
-    const remoteContent = document.content
+    setDraftText(initializeDraft(textContent.content))
+    setHasInitializedDraft(true)
+  }, [hasInitializedDraft, initializeDraft, textContent])
+
+  useEffect(() => {
+    if (!textContent || !hasInitializedDraft) {
+      return
+    }
+
+    const remoteContent = textContent.content
     const recentlyEdited =
-      Date.now() - lastInteractionRef.current < 1_500 && isFocusedRef.current
-
-    if (remoteContent === baselineTextRef.current) {
-      return
-    }
+      Date.now() - lastInteractionRef.current < 2_000 && isFocusedRef.current
 
     if (recentlyEdited && remoteContent !== draftText) {
       return
     }
 
-    baselineTextRef.current = remoteContent
-    setDraftText(remoteContent)
-  }, [document, draftText])
-
-  const pushPresence = useCallback(async () => {
-    if (!identity || !isConvexEnabled) {
-      return
+    if (remoteContent !== draftText) {
+      setDraftText(remoteContent)
+      initializeDraft(remoteContent)
     }
-
-    const textarea = textareaRef.current
-    const cursor = textarea?.selectionStart ?? draftText.length
-    const selectionStart = textarea?.selectionStart ?? cursor
-    const selectionEnd = textarea?.selectionEnd ?? cursor
-
-    try {
-      await updatePresence({
-        sessionId: identity.sessionId,
-        name: identity.name,
-        company: identity.company,
-        cursor,
-        selectionStart,
-        selectionEnd,
-      })
-    } catch {
-      // Presence is best-effort.
-    }
-  }, [draftText.length, identity, updatePresence])
+  }, [
+    draftText,
+    hasInitializedDraft,
+    initializeDraft,
+    isFocusedRef,
+    lastInteractionRef,
+    textContent,
+  ])
 
   useEffect(() => {
     if (!identity || !isConvexEnabled) {
       return
     }
 
-    void pushPresence()
+    void pushPresence(true)
     const interval = window.setInterval(() => {
       void pushPresence()
-    }, PRESENCE_INTERVAL_MS)
+    }, PRESENCE_KEEPALIVE_MS)
 
     return () => {
       window.clearInterval(interval)
@@ -159,61 +209,17 @@ export function CollaborativeTextPage() {
     }
   }, [identity, leavePresence, pushPresence])
 
-  const handleChange = useCallback(
-    async (nextText: string) => {
-      if (!identity) {
-        return
-      }
-
-      const previousText = baselineTextRef.current
-      const diff = computeTextDiff(previousText, nextText)
-
-      setDraftText(nextText)
-      lastInteractionRef.current = Date.now()
-
-      if (!diff) {
-        return
-      }
-
-      baselineTextRef.current = nextText
-      pendingMutationRef.current = true
-
-      try {
-        await applyEdit({
-          sessionId: identity.sessionId,
-          name: identity.name,
-          company: identity.company,
-          start: diff.start,
-          end: diff.end,
-          insertText: diff.insertText,
-        })
-        setError(null)
-      } catch (mutationError) {
-        baselineTextRef.current = previousText
-        setDraftText(previousText)
-        setError(
-          mutationError instanceof Error
-            ? mutationError.message
-            : "Could not save your edit."
-        )
-      } finally {
-        pendingMutationRef.current = false
-      }
-    },
-    [applyEdit, identity]
-  )
-
   const segments = useMemo<AttributedSegment[]>(
-    () => document?.segments ?? [],
-    [document?.segments]
+    () => textContent?.segments ?? [],
+    [textContent?.segments]
   )
 
   const activePresence = useMemo(
     () =>
-      (document?.presence ?? []).filter(
+      (textMeta?.presence ?? []).filter(
         (entry) => entry.sessionId !== identity?.sessionId
       ),
-    [document?.presence, identity?.sessionId]
+    [identity?.sessionId, textMeta?.presence]
   )
 
   const authors = useMemo(() => {
@@ -305,7 +311,7 @@ export function CollaborativeTextPage() {
           </div>
         ) : null}
 
-        {!document ? (
+        {!textContent || !textMeta ? (
           <div className="flex min-h-48 items-center justify-center rounded-xl border">
             <Spinner />
           </div>
@@ -326,7 +332,8 @@ export function CollaborativeTextPage() {
                       >
                         {entry.name}
                         <span className="text-muted-foreground">
-                          · line {getLineNumber(document.content, entry.cursor)}
+                          · line{" "}
+                          {getLineNumber(textContent.content, entry.cursor)}
                         </span>
                       </Badge>
                     ))}
@@ -342,25 +349,24 @@ export function CollaborativeTextPage() {
                 ref={textareaRef}
                 value={draftText}
                 onChange={(event) => {
-                  void handleChange(event.target.value)
+                  const nextText = event.target.value
+                  setDraftText(nextText)
+                  setError(null)
+                  handleDraftChange(nextText)
                 }}
-                onFocus={() => {
-                  isFocusedRef.current = true
-                  void pushPresence()
-                }}
+                onFocus={handleFocus}
                 onBlur={() => {
-                  isFocusedRef.current = false
+                  void handleBlur(draftText).catch((blurError) => {
+                    setError(
+                      blurError instanceof Error
+                        ? blurError.message
+                        : "Could not save your edit."
+                    )
+                  })
                 }}
-                onSelect={() => {
-                  lastInteractionRef.current = Date.now()
-                  void pushPresence()
-                }}
-                onKeyUp={() => {
-                  void pushPresence()
-                }}
-                onClick={() => {
-                  void pushPresence()
-                }}
+                onSelect={handleCursorChange}
+                onKeyUp={handleCursorChange}
+                onClick={handleCursorChange}
                 spellCheck
                 className="min-h-[28rem] font-mono text-sm leading-6"
                 placeholder="Start writing..."
@@ -413,12 +419,12 @@ export function CollaborativeTextPage() {
               <section className="rounded-xl border bg-background p-4">
                 <h2 className="text-sm font-medium">Recent edits</h2>
                 <ul className="mt-3 flex max-h-[32rem] flex-col gap-3 overflow-y-auto">
-                  {(document.edits ?? []).length === 0 ? (
+                  {(textMeta.edits ?? []).length === 0 ? (
                     <li className="text-sm text-muted-foreground">
-                      Edits will appear here in real time.
+                      Edits will appear here after you pause typing.
                     </li>
                   ) : (
-                    document.edits.map((edit) => (
+                    textMeta.edits.map((edit, index) => (
                       <li key={edit._id} className="text-sm">
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge
@@ -427,8 +433,22 @@ export function CollaborativeTextPage() {
                             {edit.name}
                           </Badge>
                           <span className="text-xs text-muted-foreground">
-                            {formatRelativeTime(edit.createdAt, now)}
+                            {formatRelativeTime(
+                              edit.updatedAt ?? edit.createdAt,
+                              now
+                            )}
                           </span>
+                          {edit.snapshot && index > 0 ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="ml-auto h-6 px-2 text-xs"
+                              onClick={() => void handleRestore(edit._id)}
+                              disabled={!identity}
+                            >
+                              Restore
+                            </Button>
+                          ) : null}
                         </div>
                         <p className="mt-1 text-muted-foreground">
                           {edit.summary}
