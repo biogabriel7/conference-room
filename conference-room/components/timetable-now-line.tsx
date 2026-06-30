@@ -1,7 +1,7 @@
 "use client"
 
 import type { SlotMetrics } from "@/lib/booking-block-motion"
-import { useBuenosAiresNow } from "@/lib/buenos-aires"
+import { useBuenosAiresNow } from "@/hooks/use-buenos-aires-now"
 import { SLOT_DURATION_MINUTES, TIME_SLOTS } from "@/lib/constants"
 
 const DAY_START_MINUTES = 8 * 60

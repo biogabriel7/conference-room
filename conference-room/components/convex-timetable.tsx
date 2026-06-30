@@ -6,7 +6,11 @@ import { useMutation, useQuery } from "convex/react"
 import { TimetableShell } from "@/components/timetable-shell"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import type { CreateBookingInput, UpdateBookingInput } from "@/hooks/use-local-bookings"
+import type {
+  CreateBookingInput,
+  UpdateBookingDetailsInput,
+  UpdateBookingInput,
+} from "@/hooks/use-local-bookings"
 import { getWeekdayDates, toDateKey } from "@/lib/week"
 import type { Booking } from "@/lib/types"
 
@@ -22,6 +26,7 @@ export function ConvexTimetable({ weekStart }: ConvexTimetableProps) {
   const bookings = useQuery(api.bookings.listForWeek, { startDate, endDate })
   const createBookingMutation = useMutation(api.bookings.create)
   const updateBookingMutation = useMutation(api.bookings.update)
+  const updateDetailsMutation = useMutation(api.bookings.updateDetails)
   const removeBookingMutation = useMutation(api.bookings.remove)
 
   const createBooking = useCallback(
@@ -43,6 +48,18 @@ export function ConvexTimetable({ weekStart }: ConvexTimetableProps) {
     [updateBookingMutation]
   )
 
+  const updateBookingDetails = useCallback(
+    async (input: UpdateBookingDetailsInput) => {
+      await updateDetailsMutation({
+        id: input.id as Id<"bookings">,
+        name: input.name,
+        company: input.company,
+        note: input.note,
+      })
+    },
+    [updateDetailsMutation]
+  )
+
   const removeBooking = useCallback(
     async (id: string) => {
       await removeBookingMutation({ id: id as Id<"bookings"> })
@@ -56,6 +73,7 @@ export function ConvexTimetable({ weekStart }: ConvexTimetableProps) {
       bookings={bookings as Booking[] | undefined}
       createBooking={createBooking}
       updateBooking={updateBooking}
+      updateBookingDetails={updateBookingDetails}
       removeBooking={removeBooking}
     />
   )

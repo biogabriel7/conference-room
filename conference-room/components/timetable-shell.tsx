@@ -14,7 +14,8 @@ import {
 import { BookingBlockOverlay } from "@/components/booking-block-overlay"
 import { TimetableNowLine } from "@/components/timetable-now-line"
 import { TimetableRow } from "@/components/timetable-row"
-import { useBuenosAiresNow } from "@/lib/buenos-aires"
+import { getBuenosAiresNow } from "@/lib/buenos-aires"
+import { useBuenosAiresNow } from "@/hooks/use-buenos-aires-now"
 import {
   getOrderedSlotRange,
   getSlotsForBooking,
@@ -27,6 +28,7 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import type {
   CreateBookingInput,
+  UpdateBookingDetailsInput,
   UpdateBookingInput,
 } from "@/hooks/use-local-bookings"
 import { useSlotMetrics } from "@/hooks/use-slot-metrics"
@@ -38,11 +40,13 @@ import {
 } from "@/lib/constants"
 import type { TimeSlot } from "@/lib/constants"
 import type { Booking } from "@/lib/types"
+import { getBookingErrorMessage, isPastSlot } from "@/lib/slot-validation"
 import {
   formatWeekRange,
   formatWeekday,
   getCurrentWeekStart,
   getWeekdayDates,
+  isCurrentWeek,
   shiftWeek,
   toDateKey,
 } from "@/lib/week"
@@ -61,6 +65,7 @@ type TimetableShellProps = {
   bookings: Booking[] | undefined
   createBooking: (input: CreateBookingInput) => Promise<void>
   updateBooking: (input: UpdateBookingInput) => Promise<void>
+  updateBookingDetails: (input: UpdateBookingDetailsInput) => Promise<void>
   removeBooking: (id: string) => Promise<void>
   isLocal?: boolean
 }
@@ -77,10 +82,12 @@ export function TimetableShell({
   bookings,
   createBooking,
   updateBooking,
+  updateBookingDetails,
   removeBooking,
   isLocal = false,
 }: TimetableShellProps) {
   const [selection, setSelection] = useState<SlotSelection | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null)
   const [resizePreview, setResizePreview] = useState<ResizePreview | null>(null)
   const [movePreview, setMovePreview] = useState<MovePreview | null>(null)
@@ -91,17 +98,16 @@ export function TimetableShell({
   const dragPreviewRef = useRef<DragPreview | null>(null)
   const resizePreviewRef = useRef<ResizePreview | null>(null)
   const movePreviewRef = useRef<MovePreview | null>(null)
-  const updateBookingRef = useRef(updateBooking)
   const daySlotMapsRef = useRef<
     Map<string, ReturnType<typeof buildDaySlotMaps<Booking>>>
   >(new Map())
 
-  updateBookingRef.current = updateBooking
-
   const weekDays = useMemo(() => getWeekdayDates(weekStart), [weekStart])
   const weekDateKeys = useMemo(() => weekDays.map(toDateKey), [weekDays])
-  const { dateKey: todayKey } = useBuenosAiresNow()
+  const now = useBuenosAiresNow()
+  const todayKey = now.dateKey
   const currentWeekStart = getCurrentWeekStart()
+  const showingCurrentWeek = isCurrentWeek(weekStart)
   const canGoPrevious = weekStart.getTime() > currentWeekStart.getTime()
   const previousWeek = useMemo(() => shiftWeek(weekStart, -1), [weekStart])
   const nextWeek = useMemo(() => shiftWeek(weekStart, 1), [weekStart])
@@ -135,7 +141,9 @@ export function TimetableShell({
     return maps
   }, [displayBookings, weekDays])
 
-  daySlotMapsRef.current = daySlotMaps
+  useEffect(() => {
+    daySlotMapsRef.current = daySlotMaps
+  }, [daySlotMaps])
 
   const syncDragPreview = useCallback((preview: DragPreview | null) => {
     dragPreviewRef.current = preview
@@ -152,6 +160,17 @@ export function TimetableShell({
     startTransition(() => setResizePreview(preview))
   }, [])
 
+  const commitBookingUpdate = useCallback(
+    async (input: UpdateBookingInput) => {
+      try {
+        await updateBooking(input)
+      } catch (error) {
+        setActionError(getBookingErrorMessage(error))
+      }
+    },
+    [updateBooking]
+  )
+
   useEffect(() => {
     function stopPointerInteraction() {
       if (isResizingRef.current) {
@@ -160,7 +179,7 @@ export function TimetableShell({
         syncResizePreview(null)
 
         if (preview && preview.slotCount !== preview.booking.slotCount) {
-          void updateBookingRef.current({
+          void commitBookingUpdate({
             id: preview.booking.id,
             slotDate: preview.booking.slotDate,
             slotTime: preview.booking.slotTime,
@@ -179,7 +198,7 @@ export function TimetableShell({
         syncMovePreview(null)
 
         if (preview && didMove) {
-          void updateBookingRef.current({
+          void commitBookingUpdate({
             id: preview.booking.id,
             slotDate: preview.slotDate,
             slotTime: preview.slotTime,
@@ -214,9 +233,15 @@ export function TimetableShell({
       const overlaps = slots.some((slotTime) =>
         dayMaps?.occupiedSlots.has(slotTime)
       )
+      const past = isPastSlot(preview.slotDate, startTime, getBuenosAiresNow())
 
       isDraggingRef.current = false
       syncDragPreview(null)
+
+      if (past) {
+        setActionError("That time slot is in the past.")
+        return
+      }
 
       if (!overlaps) {
         setSelection({
@@ -229,14 +254,15 @@ export function TimetableShell({
 
     window.addEventListener("pointerup", stopPointerInteraction)
     return () => window.removeEventListener("pointerup", stopPointerInteraction)
-  }, [syncDragPreview, syncMovePreview, syncResizePreview])
+  }, [commitBookingUpdate, syncDragPreview, syncMovePreview, syncResizePreview])
 
   const handleSlotPointerDown = useCallback(
     (slotDate: string, slotTime: TimeSlot, occupiedSlots: Set<string>) => {
       if (
         isResizingRef.current ||
         isMovingRef.current ||
-        occupiedSlots.has(slotTime)
+        occupiedSlots.has(slotTime) ||
+        isPastSlot(slotDate, slotTime, now)
       ) {
         return
       }
@@ -248,7 +274,7 @@ export function TimetableShell({
         endTime: slotTime,
       })
     },
-    [syncDragPreview]
+    [now, syncDragPreview]
   )
 
   const handleSlotPointerEnter = useCallback(
@@ -261,6 +287,7 @@ export function TimetableShell({
         const booking = movePreviewRef.current.booking
 
         if (
+          !isPastSlot(slotDate, slotTime, now) &&
           canPlaceBookingAt(slotTime, booking.slotCount, dayMaps.slotToBooking)
         ) {
           moveDidChangeRef.current =
@@ -300,6 +327,11 @@ export function TimetableShell({
         preview.startTime,
         slotTime
       )
+
+      if (isPastSlot(slotDate, startTime, now)) {
+        return
+      }
+
       const slots = getSlotsForBooking(startTime, slotCount)
       const overlaps = slots.some((candidate) =>
         dayMaps.occupiedSlots.has(candidate)
@@ -315,7 +347,7 @@ export function TimetableShell({
         endTime,
       })
     },
-    [syncDragPreview, syncMovePreview, syncResizePreview]
+    [now, syncDragPreview, syncMovePreview, syncResizePreview]
   )
 
   const handleMovePointerDown = useCallback(
@@ -369,13 +401,39 @@ export function TimetableShell({
           </div>
         ) : null}
 
+        {actionError ? (
+          <div
+            role="alert"
+            className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+          >
+            <span>{actionError}</span>
+            <button
+              type="button"
+              className="shrink-0 underline-offset-2 hover:underline"
+              onClick={() => setActionError(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
             <h1 className="text-2xl font-semibold tracking-tight">
               Conference room
             </h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {!showingCurrentWeek ? (
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={<Link href="/" />}
+              >
+                This week
+              </Button>
+            ) : null}
             {canGoPrevious ? (
               <Button
                 variant="outline"
@@ -437,7 +495,7 @@ export function TimetableShell({
                               : "text-muted-foreground"
                           )}
                         >
-                          {day.getDate()}
+                          {Number(toDateKey(day).slice(8, 10))}
                         </span>
                       </div>
                     </th>
@@ -453,6 +511,7 @@ export function TimetableShell({
                   slotRowIndex={slotRowIndex}
                   weekDays={weekDays}
                   todayKey={todayKey}
+                  now={now}
                   daySlotMaps={daySlotMaps}
                   dragPreview={dragPreview}
                   movePreview={movePreview}
@@ -497,6 +556,7 @@ export function TimetableShell({
         selection={selection}
         onClose={() => setSelection(null)}
         createBooking={createBooking}
+        updateBookingDetails={updateBookingDetails}
         removeBooking={removeBooking}
       />
     </>

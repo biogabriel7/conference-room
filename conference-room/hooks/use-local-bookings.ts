@@ -4,6 +4,7 @@ import { useCallback, useMemo, useSyncExternalStore } from "react"
 
 import type { CompanyId, TimeSlot } from "@/lib/constants"
 import { getSlotsForBooking } from "@/lib/constants"
+import { getBuenosAiresNow } from "@/lib/buenos-aires"
 import type { Booking } from "@/lib/types"
 
 const STORAGE_KEY = "conference-room-local-bookings"
@@ -19,6 +20,13 @@ export type UpdateBookingInput = {
   slotDate: string
   slotTime: TimeSlot
   slotCount: number
+}
+
+export type UpdateBookingDetailsInput = {
+  id: string
+  name: string
+  company: CompanyId
+  note: string
 }
 
 export type CreateBookingInput = {
@@ -73,6 +81,21 @@ function bookingOccupiesSlot(booking: Booking, slotDate: string, slotTime: strin
   }
 
   return getSlotsForBooking(booking.slotTime, booking.slotCount).includes(slotTime)
+}
+
+function assertNotPastSlot(slotDate: string, slotTime: string) {
+  const now = getBuenosAiresNow()
+
+  if (slotDate < now.dateKey) {
+    throw new Error("That time slot is in the past.")
+  }
+
+  const [hours, minutes] = slotTime.split(":").map(Number)
+  const slotStartMinutes = hours * 60 + minutes
+
+  if (slotDate === now.dateKey && slotStartMinutes < now.minutes) {
+    throw new Error("That time slot is in the past.")
+  }
 }
 
 let bookingsStore: Booking[] = []
@@ -131,6 +154,13 @@ export function useLocalBookings(startDate: string, endDate: string) {
       throw new Error("That booking extends beyond the available hours.")
     }
 
+    const name = input.name.trim()
+    if (!name) {
+      throw new Error("Name is required.")
+    }
+
+    assertNotPastSlot(input.slotDate, input.slotTime)
+
     const hasConflict = bookingsStore.some((booking) =>
       slots.some((slotTime) => bookingOccupiesSlot(booking, input.slotDate, slotTime))
     )
@@ -144,6 +174,8 @@ export function useLocalBookings(startDate: string, endDate: string) {
       {
         id: crypto.randomUUID(),
         ...input,
+        name,
+        note: input.note.trim(),
         slotCount,
         createdAt: new Date().toISOString(),
       },
@@ -167,6 +199,8 @@ export function useLocalBookings(startDate: string, endDate: string) {
     if (slots.length !== slotCount) {
       throw new Error("That booking extends beyond the available hours.")
     }
+
+    assertNotPastSlot(input.slotDate, input.slotTime)
 
     const hasConflict = bookingsStore.some(
       (candidate) =>
@@ -194,10 +228,37 @@ export function useLocalBookings(startDate: string, endDate: string) {
     )
   }, [])
 
+  const updateBookingDetails = useCallback(async (input: UpdateBookingDetailsInput) => {
+    const booking = bookingsStore.find((candidate) => candidate.id === input.id)
+
+    if (!booking) {
+      throw new Error("Booking not found.")
+    }
+
+    const name = input.name.trim()
+    if (!name) {
+      throw new Error("Name is required.")
+    }
+
+    writeBookings(
+      bookingsStore.map((candidate) =>
+        candidate.id === booking.id
+          ? {
+              ...candidate,
+              name,
+              company: input.company,
+              note: input.note.trim(),
+            }
+          : candidate
+      )
+    )
+  }, [])
+
   return {
     bookings,
     createBooking,
     removeBooking,
     updateBooking,
+    updateBookingDetails,
   }
 }

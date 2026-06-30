@@ -1,7 +1,3 @@
-"use client"
-
-import { useEffect, useState } from "react"
-
 export const BUENOS_AIRES_TIME_ZONE = "America/Argentina/Buenos_Aires"
 
 const PARTS_FORMAT = new Intl.DateTimeFormat("en-CA", {
@@ -42,14 +38,42 @@ export function getBuenosAiresNow(date: Date = new Date()): BuenosAiresNow {
   return { minutes, dateKey, label: LABEL_FORMAT.format(date) }
 }
 
-/** Tracks the current Buenos Aires time, refreshing every minute. */
-export function useBuenosAiresNow(): BuenosAiresNow {
-  const [now, setNow] = useState(() => getBuenosAiresNow())
+function parseDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number)
+  return { year, month, day }
+}
 
-  useEffect(() => {
-    const id = setInterval(() => setNow(getBuenosAiresNow()), 60_000)
-    return () => clearInterval(id)
-  }, [])
+function formatDateKeyFromUtc(date: Date) {
+  const year = date.getUTCFullYear()
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0")
+  const day = String(date.getUTCDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
 
-  return now
+/** Calendar date in Buenos Aires for any instant. */
+export function toBuenosAiresDateKey(date: Date = new Date()) {
+  return getBuenosAiresNow(date).dateKey
+}
+
+/** Stable Date at UTC noon for a `YYYY-MM-DD` calendar key. */
+export function dateKeyToDate(dateKey: string) {
+  const { year, month, day } = parseDateKey(dateKey)
+  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0))
+}
+
+export function addDaysToDateKey(dateKey: string, days: number) {
+  const { year, month, day } = parseDateKey(dateKey)
+  return formatDateKeyFromUtc(new Date(Date.UTC(year, month - 1, day + days)))
+}
+
+function getWeekdayFromDateKey(dateKey: string) {
+  const { year, month, day } = parseDateKey(dateKey)
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+}
+
+/** Monday of the week containing `dateKey`. */
+export function startOfWeekDateKey(dateKey: string) {
+  const weekday = getWeekdayFromDateKey(dateKey)
+  const diff = weekday === 0 ? -6 : 1 - weekday
+  return addDaysToDateKey(dateKey, diff)
 }

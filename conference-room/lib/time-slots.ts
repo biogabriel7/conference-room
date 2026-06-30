@@ -11,7 +11,7 @@ function minutesToTime(totalMinutes: number) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`
 }
 
-function timeToMinutes(time: string) {
+export function timeToMinutes(time: string) {
   const [hours, minutes] = time.split(":").map(Number)
   return hours * 60 + minutes
 }

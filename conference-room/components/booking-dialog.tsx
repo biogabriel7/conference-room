@@ -5,13 +5,15 @@ import { useState } from "react"
 import {
   COMPANIES,
   formatTimeRange,
-  getCompanyLabel,
 } from "@/lib/constants"
 import type { CompanyId, TimeSlot } from "@/lib/constants"
-import type { CreateBookingInput } from "@/hooks/use-local-bookings"
+import type {
+  CreateBookingInput,
+  UpdateBookingDetailsInput,
+} from "@/hooks/use-local-bookings"
 import type { Booking } from "@/lib/types"
+import { getBookingErrorMessage } from "@/lib/slot-validation"
 import { formatDay, formatWeekday } from "@/lib/week"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -45,45 +47,35 @@ type BookingDialogProps = {
   selection: SlotSelection | null
   onClose: () => void
   createBooking: (input: CreateBookingInput) => Promise<void>
+  updateBookingDetails: (input: UpdateBookingDetailsInput) => Promise<void>
   removeBooking: (id: string) => Promise<void>
 }
 
-export function BookingDialog({
+type BookingFormProps = {
+  selection: SlotSelection
+  createBooking: (input: CreateBookingInput) => Promise<void>
+  updateBookingDetails: (input: UpdateBookingDetailsInput) => Promise<void>
+  removeBooking: (id: string) => Promise<void>
+  onClose: () => void
+}
+
+function BookingForm({
   selection,
-  onClose,
   createBooking,
+  updateBookingDetails,
   removeBooking,
-}: BookingDialogProps) {
-  const [name, setName] = useState("")
-  const [company, setCompany] = useState<string>("")
-  const [note, setNote] = useState("")
+  onClose,
+}: BookingFormProps) {
+  const booking = selection.booking
+  const [name, setName] = useState(booking?.name ?? "")
+  const [company, setCompany] = useState(booking?.company ?? "")
+  const [note, setNote] = useState(booking?.note ?? "")
   const [companyError, setCompanyError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPending, setIsPending] = useState(false)
 
-  const open = selection !== null
-  const booking = selection?.booking
-
-  function resetForm() {
-    setName("")
-    setCompany("")
-    setNote("")
-    setCompanyError(null)
-    setError(null)
-  }
-
-  function handleOpenChange(nextOpen: boolean) {
-    if (!nextOpen) {
-      resetForm()
-      onClose()
-    }
-  }
-
   async function handleBook(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!selection) {
-      return
-    }
 
     if (!company) {
       setCompanyError("Select a company.")
@@ -103,10 +95,39 @@ export function BookingDialog({
         company: company as CompanyId,
         note,
       })
-      resetForm()
       onClose()
-    } catch {
-      setError("That slot is already booked.")
+    } catch (caught) {
+      setError(getBookingErrorMessage(caught))
+    } finally {
+      setIsPending(false)
+    }
+  }
+
+  async function handleSave(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!booking) {
+      return
+    }
+
+    if (!company) {
+      setCompanyError("Select a company.")
+      return
+    }
+
+    setIsPending(true)
+    setError(null)
+    setCompanyError(null)
+
+    try {
+      await updateBookingDetails({
+        id: booking.id,
+        name,
+        company: company as CompanyId,
+        note,
+      })
+      onClose()
+    } catch (caught) {
+      setError(getBookingErrorMessage(caught))
     } finally {
       setIsPending(false)
     }
@@ -122,129 +143,155 @@ export function BookingDialog({
 
     try {
       await removeBooking(booking.id)
-      resetForm()
       onClose()
-    } catch {
-      setError("Could not remove booking.")
+    } catch (caught) {
+      setError(getBookingErrorMessage(caught))
     } finally {
       setIsPending(false)
     }
   }
 
-  const slotLabel =
-    selection &&
-    `${formatWeekday(new Date(`${selection.slotDate}T00:00:00`))}, ${formatDay(new Date(`${selection.slotDate}T00:00:00`))} · ${formatTimeRange(selection.slotTime, selection.slotCount)}`
+  const formFields = (
+    <FieldGroup>
+      <Field>
+        <FieldLabel htmlFor="name">Name</FieldLabel>
+        <Input
+          id="name"
+          name="name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          autoComplete="name"
+          required
+        />
+      </Field>
+      <Field data-invalid={companyError ? true : undefined}>
+        <FieldLabel htmlFor="company">Company</FieldLabel>
+        <Select
+          value={company}
+          onValueChange={(value) => {
+            setCompany(value ?? "")
+            setCompanyError(null)
+          }}
+        >
+          <SelectTrigger
+            id="company"
+            className="w-full"
+            aria-invalid={companyError ? true : undefined}
+          >
+            <SelectValue placeholder="Select company" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {COMPANIES.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <FieldError>{companyError}</FieldError>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="note">Note</FieldLabel>
+        <Textarea
+          id="note"
+          name="note"
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          rows={3}
+          placeholder="Optional"
+        />
+      </Field>
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+    </FieldGroup>
+  )
+
+  if (booking) {
+    return (
+      <form onSubmit={handleSave}>
+        {formFields}
+        <DialogFooter className="mt-4">
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={isPending}
+            onClick={handleRemove}
+          >
+            {isPending ? <Spinner data-icon="inline-start" /> : null}
+            Remove
+          </Button>
+          <Button type="submit" disabled={isPending}>
+            {isPending ? <Spinner data-icon="inline-start" /> : null}
+            Save
+          </Button>
+        </DialogFooter>
+      </form>
+    )
+  }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <form onSubmit={handleBook}>
+      {formFields}
+      <DialogFooter className="mt-4">
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isPending}>
+          {isPending ? <Spinner data-icon="inline-start" /> : null}
+          Book
+        </Button>
+      </DialogFooter>
+    </form>
+  )
+}
+
+export function BookingDialog({
+  selection,
+  onClose,
+  createBooking,
+  updateBookingDetails,
+  removeBooking,
+}: BookingDialogProps) {
+  const open = selection !== null
+
+  const slotLabel =
+    selection &&
+    `${formatWeekday(new Date(`${selection.slotDate}T12:00:00Z`))}, ${formatDay(new Date(`${selection.slotDate}T12:00:00Z`))} · ${formatTimeRange(selection.slotTime, selection.slotCount)}`
+
+  const formKey = selection
+    ? (selection.booking?.id ??
+      `${selection.slotDate}-${selection.slotTime}-${selection.slotCount}`)
+    : "closed"
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          onClose()
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{booking ? "Booking" : "Book slot"}</DialogTitle>
+          <DialogTitle>{selection?.booking ? "Edit booking" : "Book slot"}</DialogTitle>
           <DialogDescription>{slotLabel}</DialogDescription>
         </DialogHeader>
 
-        {booking ? (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <span className="font-medium">{booking.name}</span>
-              <Badge variant="secondary">{getCompanyLabel(booking.company)}</Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {formatTimeRange(booking.slotTime, booking.slotCount)}
-            </p>
-            {booking.note ? (
-              <p className="text-sm text-muted-foreground">{booking.note}</p>
-            ) : null}
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleOpenChange(false)}
-              >
-                Close
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={isPending}
-                onClick={handleRemove}
-              >
-                {isPending ? <Spinner data-icon="inline-start" /> : null}
-                Remove
-              </Button>
-            </DialogFooter>
-          </div>
-        ) : (
-          <form onSubmit={handleBook}>
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="name">Name</FieldLabel>
-                <Input
-                  id="name"
-                  name="name"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  autoComplete="name"
-                  required
-                />
-              </Field>
-              <Field data-invalid={companyError ? true : undefined}>
-                <FieldLabel htmlFor="company">Company</FieldLabel>
-                <Select
-                  value={company}
-                  onValueChange={(value) => {
-                    setCompany(value ?? "")
-                    setCompanyError(null)
-                  }}
-                >
-                  <SelectTrigger
-                    id="company"
-                    className="w-full"
-                    aria-invalid={companyError ? true : undefined}
-                  >
-                    <SelectValue placeholder="Select company" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {COMPANIES.map((item) => (
-                        <SelectItem key={item.id} value={item.id}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <FieldError>{companyError}</FieldError>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="note">Note</FieldLabel>
-                <Textarea
-                  id="note"
-                  name="note"
-                  value={note}
-                  onChange={(event) => setNote(event.target.value)}
-                  rows={3}
-                  placeholder="Optional"
-                />
-              </Field>
-              {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            </FieldGroup>
-            <DialogFooter className="mt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isPending}>
-                {isPending ? <Spinner data-icon="inline-start" /> : null}
-                Book
-              </Button>
-            </DialogFooter>
-          </form>
-        )}
+        {selection ? (
+          <BookingForm
+            key={formKey}
+            selection={selection}
+            createBooking={createBooking}
+            updateBookingDetails={updateBookingDetails}
+            removeBooking={removeBooking}
+            onClose={onClose}
+          />
+        ) : null}
       </DialogContent>
     </Dialog>
   )

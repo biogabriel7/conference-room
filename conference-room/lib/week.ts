@@ -1,40 +1,47 @@
+import {
+  addDaysToDateKey,
+  BUENOS_AIRES_TIME_ZONE,
+  dateKeyToDate,
+  getBuenosAiresNow,
+  startOfWeekDateKey,
+  toBuenosAiresDateKey,
+} from "@/lib/buenos-aires"
+
 export function toDateKey(date: Date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  const day = String(date.getDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
+  return toBuenosAiresDateKey(date)
 }
 
 export function startOfWeek(date: Date) {
-  const result = new Date(date)
-  const day = result.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  result.setDate(result.getDate() + diff)
-  result.setHours(0, 0, 0, 0)
-  return result
+  return dateKeyToDate(startOfWeekDateKey(toBuenosAiresDateKey(date)))
 }
 
 export function getWeekdayDates(weekStart: Date) {
-  return Array.from({ length: 5 }, (_, index) => {
-    const day = new Date(weekStart)
-    day.setDate(weekStart.getDate() + index)
-    return day
-  })
+  const startKey = toBuenosAiresDateKey(weekStart)
+
+  return Array.from({ length: 5 }, (_, index) =>
+    dateKeyToDate(addDaysToDateKey(startKey, index))
+  )
 }
 
-const weekdayFormatter = new Intl.DateTimeFormat("en", { weekday: "short" })
+const weekdayFormatter = new Intl.DateTimeFormat("en", {
+  weekday: "short",
+  timeZone: BUENOS_AIRES_TIME_ZONE,
+})
 const dayFormatter = new Intl.DateTimeFormat("en", {
   day: "numeric",
   month: "short",
+  timeZone: BUENOS_AIRES_TIME_ZONE,
 })
 const weekStartFormatter = new Intl.DateTimeFormat("en", {
   day: "numeric",
   month: "short",
+  timeZone: BUENOS_AIRES_TIME_ZONE,
 })
 const weekEndFormatter = new Intl.DateTimeFormat("en", {
   day: "numeric",
   month: "short",
   year: "numeric",
+  timeZone: BUENOS_AIRES_TIME_ZONE,
 })
 
 export function formatWeekday(date: Date) {
@@ -46,41 +53,45 @@ export function formatDay(date: Date) {
 }
 
 export function formatWeekRange(weekStart: Date) {
-  const weekEnd = new Date(weekStart)
-  weekEnd.setDate(weekStart.getDate() + 4)
+  const weekEnd = dateKeyToDate(
+    addDaysToDateKey(toBuenosAiresDateKey(weekStart), 4)
+  )
 
   return `${weekStartFormatter.format(weekStart)} – ${weekEndFormatter.format(weekEnd)}`
 }
 
 export function getCurrentWeekStart() {
-  return startOfWeek(new Date())
+  return dateKeyToDate(startOfWeekDateKey(getBuenosAiresNow().dateKey))
+}
+
+export function isCurrentWeek(weekStart: Date) {
+  return (
+    toBuenosAiresDateKey(weekStart) ===
+    startOfWeekDateKey(getBuenosAiresNow().dateKey)
+  )
 }
 
 export function clampWeekStart(weekStart: Date) {
-  const currentWeekStart = getCurrentWeekStart()
+  const currentWeekKey = startOfWeekDateKey(getBuenosAiresNow().dateKey)
+  const weekKey = startOfWeekDateKey(toBuenosAiresDateKey(weekStart))
 
-  if (weekStart.getTime() < currentWeekStart.getTime()) {
-    return currentWeekStart
+  if (weekKey < currentWeekKey) {
+    return dateKeyToDate(currentWeekKey)
   }
 
-  return weekStart
+  return dateKeyToDate(weekKey)
 }
 
 export function parseWeekParam(value: string | undefined) {
-  if (!value) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return getCurrentWeekStart()
   }
 
-  const parsed = new Date(`${value}T00:00:00`)
-  if (Number.isNaN(parsed.getTime())) {
-    return getCurrentWeekStart()
-  }
-
-  return clampWeekStart(startOfWeek(parsed))
+  return clampWeekStart(dateKeyToDate(startOfWeekDateKey(value)))
 }
 
 export function shiftWeek(weekStart: Date, direction: -1 | 1) {
-  const next = new Date(weekStart)
-  next.setDate(weekStart.getDate() + direction * 7)
-  return next
+  return dateKeyToDate(
+    addDaysToDateKey(toBuenosAiresDateKey(weekStart), direction * 7)
+  )
 }
