@@ -11,6 +11,7 @@ import {
   useState,
 } from "react"
 
+import { AppNav } from "@/components/app-nav"
 import { BookingBlockOverlay } from "@/components/booking-block-overlay"
 import { TimetableNowLine } from "@/components/timetable-now-line"
 import { TimetableRow } from "@/components/timetable-row"
@@ -422,7 +423,8 @@ export function TimetableShell({
         ) : null}
 
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-2">
+            <AppNav />
             <h1 className="text-2xl font-semibold tracking-tight">
               Conference room
             </h1>
