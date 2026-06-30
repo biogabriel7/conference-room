@@ -132,16 +132,20 @@ export const listForWeek = query({
       .collect()
 
     return rows
-      .map(({ _id, _creationTime, ...booking }) => ({
-        id: _id,
-        ...booking,
-        slotCount: booking.slotCount ?? 1,
-        slotTime: booking.slotTime,
-        createdAt: new Date(booking.createdAt).toISOString(),
-        slotChangedAt: booking.slotChangedAt
-          ? new Date(booking.slotChangedAt).toISOString()
-          : new Date(booking.createdAt).toISOString(),
-      }))
+      .map(({ _id, _creationTime, ...booking }) => {
+        void _creationTime
+
+        return {
+          id: _id,
+          ...booking,
+          slotCount: booking.slotCount ?? 1,
+          slotTime: booking.slotTime,
+          createdAt: new Date(booking.createdAt).toISOString(),
+          slotChangedAt: booking.slotChangedAt
+            ? new Date(booking.slotChangedAt).toISOString()
+            : new Date(booking.createdAt).toISOString(),
+        }
+      })
       .sort((a, b) =>
         a.slotDate === b.slotDate
           ? a.slotTime.localeCompare(b.slotTime)
