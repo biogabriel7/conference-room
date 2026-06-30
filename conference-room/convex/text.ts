@@ -233,6 +233,54 @@ export const ensureDocument = mutation({
   },
 })
 
+export const resetDocument = mutation({
+  args: {
+    slug: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const slug = args.slug ?? DEFAULT_SLUG
+    const now = Date.now()
+
+    const document = await ctx.db
+      .query("textDocuments")
+      .withIndex("by_slug", (query) => query.eq("slug", slug))
+      .unique()
+
+    if (document) {
+      await ctx.db.patch(document._id, {
+        segments: getDefaultSegments(),
+        updatedAt: now,
+      })
+    } else {
+      await ctx.db.insert("textDocuments", {
+        slug,
+        segments: getDefaultSegments(),
+        updatedAt: now,
+      })
+    }
+
+    const edits = await ctx.db
+      .query("textEdits")
+      .withIndex("by_slug_created", (query) => query.eq("slug", slug))
+      .collect()
+
+    for (const edit of edits) {
+      await ctx.db.delete(edit._id)
+    }
+
+    const presence = await ctx.db
+      .query("textPresence")
+      .withIndex("by_slug", (query) => query.eq("slug", slug))
+      .collect()
+
+    for (const entry of presence) {
+      await ctx.db.delete(entry._id)
+    }
+
+    return { slug, reseeded: true }
+  },
+})
+
 export const applyEdit = mutation({
   args: {
     slug: v.optional(v.string()),

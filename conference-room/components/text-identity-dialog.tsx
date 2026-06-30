@@ -47,51 +47,58 @@ export function TextIdentityDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="text-name">Your name</FieldLabel>
-            <Input
-              id="text-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Gabriel"
-              autoFocus
-            />
-          </Field>
-          <Field>
-            <FieldLabel>Company</FieldLabel>
-            <Select
-              value={company}
-              onValueChange={(value) => setCompany(value as CompanyId)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {COMPANIES.map((entry) => (
-                    <SelectItem key={entry.id} value={entry.id}>
-                      {entry.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-        </FieldGroup>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            const trimmedName = name.trim()
 
-        <DialogFooter>
-          <Button
-            disabled={!name.trim()}
-            onClick={() => {
-              const trimmedName = name.trim()
-              storeTextIdentity({ name: trimmedName, company })
-              onContinue({ name: trimmedName, company })
-            }}
-          >
-            Continue
-          </Button>
-        </DialogFooter>
+            if (!trimmedName) {
+              return
+            }
+
+            storeTextIdentity({ name: trimmedName, company })
+            onContinue({ name: trimmedName, company })
+          }}
+        >
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="text-name">Your name</FieldLabel>
+              <Input
+                id="text-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="e.g. Ana Pérez"
+                autoFocus
+              />
+            </Field>
+            <Field>
+              <FieldLabel>Company</FieldLabel>
+              <Select
+                value={company}
+                onValueChange={(value) => setCompany(value as CompanyId)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {COMPANIES.map((entry) => (
+                      <SelectItem key={entry.id} value={entry.id}>
+                        {entry.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+          </FieldGroup>
+
+          <DialogFooter className="mt-6">
+            <Button type="submit" disabled={!name.trim()}>
+              Continue
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )
