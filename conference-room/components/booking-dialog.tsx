@@ -70,20 +70,37 @@ function BookingForm({
   const [name, setName] = useState(booking?.name ?? "")
   const [company, setCompany] = useState(booking?.company ?? "")
   const [note, setNote] = useState(booking?.note ?? "")
+  const [nameError, setNameError] = useState<string | null>(null)
   const [companyError, setCompanyError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPending, setIsPending] = useState(false)
 
-  async function handleBook(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  function validateForm() {
+    let valid = true
+
+    if (!name.trim()) {
+      setNameError("Enter a name.")
+      valid = false
+    }
 
     if (!company) {
       setCompanyError("Select a company.")
+      valid = false
+    }
+
+    return valid
+  }
+
+  async function handleBook(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!validateForm()) {
       return
     }
 
     setIsPending(true)
     setError(null)
+    setNameError(null)
     setCompanyError(null)
 
     try {
@@ -109,13 +126,13 @@ function BookingForm({
       return
     }
 
-    if (!company) {
-      setCompanyError("Select a company.")
+    if (!validateForm()) {
       return
     }
 
     setIsPending(true)
     setError(null)
+    setNameError(null)
     setCompanyError(null)
 
     try {
@@ -153,16 +170,20 @@ function BookingForm({
 
   const formFields = (
     <FieldGroup>
-      <Field>
+      <Field data-invalid={nameError ? true : undefined}>
         <FieldLabel htmlFor="name">Name</FieldLabel>
         <Input
           id="name"
           name="name"
           value={name}
-          onChange={(event) => setName(event.target.value)}
+          onChange={(event) => {
+            setName(event.target.value)
+            setNameError(null)
+          }}
           autoComplete="name"
-          required
+          aria-invalid={nameError ? true : undefined}
         />
+        <FieldError>{nameError}</FieldError>
       </Field>
       <Field data-invalid={companyError ? true : undefined}>
         <FieldLabel htmlFor="company">Company</FieldLabel>

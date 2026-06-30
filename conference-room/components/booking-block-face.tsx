@@ -1,16 +1,11 @@
 import { Badge } from "@/components/ui/badge"
-import { getCompanyLabel, formatTimeRange } from "@/lib/constants"
+import {
+  getCompanyBadgeClassName,
+  getCompanyLabel,
+  formatTimeRange,
+} from "@/lib/constants"
 import type { Booking } from "@/lib/types"
-
-function companyBadgeVariant(company: string) {
-  if (company === "nilo") {
-    return "default" as const
-  }
-  if (company === "first-plug") {
-    return "secondary" as const
-  }
-  return "outline" as const
-}
+import { cn } from "@/lib/utils"
 
 type BookingBlockFaceProps = {
   booking: Booking
@@ -23,10 +18,17 @@ export function BookingBlockFace({
   slotTime,
   slotCount,
 }: BookingBlockFaceProps) {
+  if (slotCount === 1) {
+    return null
+  }
+
   return (
     <>
       <span className="truncate text-sm font-medium">{booking.name}</span>
-      <Badge variant={companyBadgeVariant(booking.company)} className="w-fit">
+      <Badge
+        variant="outline"
+        className={cn("w-fit", getCompanyBadgeClassName(booking.company))}
+      >
         {getCompanyLabel(booking.company)}
       </Badge>
       <span className="text-xs text-muted-foreground">

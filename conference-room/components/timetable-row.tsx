@@ -3,7 +3,7 @@
 import { memo } from "react"
 
 import { BookingBlockFace } from "@/components/booking-block-face"
-import { buildDaySlotMaps, formatTimeSlot, getSlotsForBooking } from "@/lib/constants"
+import { buildDaySlotMaps, formatTimeSlot, getBookingBlockLabel, getCompanyBlockClassName, getCompanyCompactBlockClassName, getCompanyHandleClassName, getSlotsForBooking } from "@/lib/constants"
 import type { TimeSlot } from "@/lib/constants"
 import type { SlotMetrics } from "@/lib/booking-block-motion"
 import type { Booking } from "@/lib/types"
@@ -119,6 +119,10 @@ export const TimetableRow = memo(function TimetableRow({
         const slotCount = isMovePreviewStart
           ? moveForDay!.booking.slotCount
           : (booking?.slotCount ?? 1)
+        const isCompact = slotCount === 1
+        const blockLabel = displayBooking
+          ? getBookingBlockLabel(displayBooking, displayBooking.slotTime, slotCount)
+          : undefined
         const previewActive = isSlotInPreview(slotDate, slotTime, dragPreview)
         const moveActive =
           moveForDay !== null && displayBooking?.id === moveForDay.booking.id
@@ -149,7 +153,15 @@ export const TimetableRow = memo(function TimetableRow({
                   className="absolute inset-0.5 rounded-md border border-dashed border-primary/25 bg-primary/5"
                 />
               ) : (
-                <div className="absolute inset-0.5 flex flex-col rounded-md border border-border bg-muted/20">
+                <div
+                  className={cn(
+                    "absolute inset-0.5 flex flex-col rounded-md",
+                    isCompact
+                      ? getCompanyCompactBlockClassName(displayBooking.company)
+                      : cn("border", getCompanyBlockClassName(displayBooking.company))
+                  )}
+                  title={isCompact ? blockLabel : undefined}
+                >
                   <button
                     type="button"
                     onPointerDown={(event) =>
@@ -158,20 +170,36 @@ export const TimetableRow = memo(function TimetableRow({
                     onPointerEnter={() =>
                       onSlotPointerEnter(slotDate, slotTime, dayMaps)
                     }
-                    className="flex min-h-0 flex-1 cursor-grab flex-col gap-1 px-2 py-1 text-left active:cursor-grabbing"
+                    aria-label={blockLabel}
+                    className={cn(
+                      "cursor-grab text-left active:cursor-grabbing",
+                      isCompact
+                        ? "absolute inset-0 rounded-md"
+                        : "flex min-h-0 flex-1 flex-col gap-1 px-2 py-1"
+                    )}
                   >
-                    <BookingBlockFace
-                      booking={displayBooking}
-                      slotTime={displayBooking.slotTime}
-                      slotCount={slotCount}
-                    />
+                    {!isCompact ? (
+                      <BookingBlockFace
+                        booking={displayBooking}
+                        slotTime={displayBooking.slotTime}
+                        slotCount={slotCount}
+                      />
+                    ) : null}
                   </button>
                   <div
                     aria-label="Drag to extend booking"
                     onPointerDown={(event) =>
                       onResizePointerDown(event, displayBooking)
                     }
-                    className="absolute inset-x-1 bottom-0 z-10 h-2.5 shrink-0 cursor-ns-resize rounded-b-md transition-colors hover:bg-primary/30 active:bg-primary/40"
+                    className={cn(
+                      "absolute inset-x-0 bottom-0 z-10 shrink-0 cursor-ns-resize",
+                      isCompact
+                        ? "h-1"
+                        : cn(
+                            "inset-x-1 h-2.5 rounded-b-md transition-colors",
+                            getCompanyHandleClassName(displayBooking.company)
+                          )
+                    )}
                   />
                 </div>
               )

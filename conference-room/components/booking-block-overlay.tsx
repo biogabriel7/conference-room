@@ -5,7 +5,12 @@ import {
   getBookingBlockRect,
   type SlotMetrics,
 } from "@/lib/booking-block-motion"
-import type { TimeSlot } from "@/lib/constants"
+import {
+  getCompanyBlockClassName,
+  getCompanyCompactBlockClassName,
+  getCompanyHandleClassName,
+  type TimeSlot,
+} from "@/lib/constants"
 import { getSlotIndex } from "@/lib/time-slots"
 import type { Booking } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -41,6 +46,7 @@ export function BookingBlockOverlay({
   }
 
   const { durationMs, ease, overlayZIndex } = BOOKING_BLOCK_MOTION
+  const isCompact = slotCount === 1
 
   // Drive position with `transform` (GPU, no layout) instead of top/left so
   // moving a block across the grid stays smooth even under main-thread load.
@@ -58,8 +64,11 @@ export function BookingBlockOverlay({
     <div
       aria-hidden
       className={cn(
-        "pointer-events-none absolute top-0 left-0 flex flex-col rounded-md border bg-muted/20 shadow-lg",
-        active ? "border-primary/40 ring-1 ring-primary/20" : "border-border"
+        "pointer-events-none absolute top-0 left-0 flex flex-col rounded-md shadow-lg",
+        isCompact
+          ? getCompanyCompactBlockClassName(booking.company)
+          : cn("border", getCompanyBlockClassName(booking.company)),
+        active && !isCompact && "border-primary/40 ring-1 ring-primary/20"
       )}
       style={{
         width: rect.width,
@@ -71,13 +80,22 @@ export function BookingBlockOverlay({
       }}
     >
       <div className="flex min-h-0 flex-1 flex-col gap-1 px-2 py-1 text-left">
-        <BookingBlockFace
-          booking={booking}
-          slotTime={slotTime}
-          slotCount={slotCount}
-        />
+        {!isCompact ? (
+          <BookingBlockFace
+            booking={booking}
+            slotTime={slotTime}
+            slotCount={slotCount}
+          />
+        ) : null}
       </div>
-      <div className="absolute inset-x-1 bottom-0 h-2.5 shrink-0 rounded-b-md bg-primary/20" />
+      {!isCompact ? (
+        <div
+          className={cn(
+            "absolute inset-x-1 bottom-0 h-2.5 shrink-0 rounded-b-md",
+            getCompanyHandleClassName(booking.company)
+          )}
+        />
+      ) : null}
     </div>
   )
 }
