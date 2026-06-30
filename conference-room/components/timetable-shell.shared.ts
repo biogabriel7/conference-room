@@ -28,6 +28,31 @@ export const TIME_COLUMN_HEADER_CLASS =
 export const TIME_COLUMN_CELL_CLASS =
   "sticky left-0 z-20 w-10 shrink-0 border-r border-border/80 bg-muted/50 px-1 py-0.5 align-top text-center font-mono text-[11px] font-medium leading-none tabular-nums tracking-tight text-foreground/90"
 
+export const SLOT_TARGET_SELECTOR = "[data-slot-date][data-slot-time]"
+
+export function resolveSlotAtPoint(clientX: number, clientY: number) {
+  const element = document.elementFromPoint(clientX, clientY)
+
+  if (!element) {
+    return null
+  }
+
+  const slotTarget = element.closest(SLOT_TARGET_SELECTOR)
+
+  if (!slotTarget) {
+    return null
+  }
+
+  const slotDate = slotTarget.getAttribute("data-slot-date")
+  const slotTime = slotTarget.getAttribute("data-slot-time")
+
+  if (!slotDate || !slotTime) {
+    return null
+  }
+
+  return { slotDate, slotTime: slotTime as TimeSlot }
+}
+
 export function isSlotInPreview(
   slotDate: string,
   slotTime: TimeSlot,

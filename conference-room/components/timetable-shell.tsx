@@ -23,6 +23,7 @@ import {
   type DragPreview,
   type MovePreview,
   type ResizePreview,
+  resolveSlotAtPoint,
   TIME_COLUMN_HEADER_CLASS,
 } from "@/components/timetable-shell.shared"
 import { Button } from "@/components/ui/button"
@@ -102,6 +103,13 @@ export function TimetableShell({
   const daySlotMapsRef = useRef<
     Map<string, ReturnType<typeof buildDaySlotMaps<Booking>>>
   >(new Map())
+  const handleSlotPointerEnterRef = useRef<
+    (
+      slotDate: string,
+      slotTime: TimeSlot,
+      dayMaps: ReturnType<typeof buildDaySlotMaps<Booking>>
+    ) => void
+  >(() => {})
 
   const weekDays = useMemo(() => getWeekdayDates(weekStart), [weekStart])
   const weekDateKeys = useMemo(() => weekDays.map(toDateKey), [weekDays])
@@ -173,6 +181,56 @@ export function TimetableShell({
   )
 
   useEffect(() => {
+    function trackPointerMove(event: PointerEvent) {
+      if (
+        !isDraggingRef.current &&
+        !isMovingRef.current &&
+        !isResizingRef.current
+      ) {
+        return
+      }
+
+      event.preventDefault()
+
+      const slot = resolveSlotAtPoint(event.clientX, event.clientY)
+
+      if (!slot) {
+        return
+      }
+
+      const dayMaps = daySlotMapsRef.current.get(slot.slotDate)
+
+      if (!dayMaps) {
+        return
+      }
+
+      handleSlotPointerEnterRef.current(
+        slot.slotDate,
+        slot.slotTime as TimeSlot,
+        dayMaps
+      )
+    }
+
+    function cancelPointerInteraction() {
+      if (isResizingRef.current) {
+        isResizingRef.current = false
+        syncResizePreview(null)
+        return
+      }
+
+      if (isMovingRef.current) {
+        isMovingRef.current = false
+        moveDidChangeRef.current = false
+        syncMovePreview(null)
+        return
+      }
+
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false
+        syncDragPreview(null)
+      }
+    }
+
     function stopPointerInteraction() {
       if (isResizingRef.current) {
         const preview = resizePreviewRef.current
@@ -257,12 +315,24 @@ export function TimetableShell({
       }
     }
 
+    window.addEventListener("pointermove", trackPointerMove, { passive: false })
     window.addEventListener("pointerup", stopPointerInteraction)
-    return () => window.removeEventListener("pointerup", stopPointerInteraction)
+    window.addEventListener("pointercancel", cancelPointerInteraction)
+
+    return () => {
+      window.removeEventListener("pointermove", trackPointerMove)
+      window.removeEventListener("pointerup", stopPointerInteraction)
+      window.removeEventListener("pointercancel", cancelPointerInteraction)
+    }
   }, [commitBookingUpdate, syncDragPreview, syncMovePreview, syncResizePreview])
 
   const handleSlotPointerDown = useCallback(
-    (slotDate: string, slotTime: TimeSlot, occupiedSlots: Set<string>) => {
+    (
+      event: React.PointerEvent<HTMLButtonElement>,
+      slotDate: string,
+      slotTime: TimeSlot,
+      occupiedSlots: Set<string>
+    ) => {
       if (
         isResizingRef.current ||
         isMovingRef.current ||
@@ -271,6 +341,9 @@ export function TimetableShell({
       ) {
         return
       }
+
+      event.preventDefault()
+      event.currentTarget.setPointerCapture(event.pointerId)
 
       isDraggingRef.current = true
       syncDragPreview({
@@ -355,10 +428,13 @@ export function TimetableShell({
     [now, syncDragPreview, syncMovePreview, syncResizePreview]
   )
 
+  handleSlotPointerEnterRef.current = handleSlotPointerEnter
+
   const handleMovePointerDown = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>, booking: Booking) => {
       event.preventDefault()
       event.stopPropagation()
+      event.currentTarget.setPointerCapture(event.pointerId)
 
       isMovingRef.current = true
       moveDidChangeRef.current = false
@@ -375,6 +451,7 @@ export function TimetableShell({
     (event: React.PointerEvent<HTMLDivElement>, booking: Booking) => {
       event.preventDefault()
       event.stopPropagation()
+      event.currentTarget.setPointerCapture(event.pointerId)
 
       isResizingRef.current = true
       syncResizePreview({

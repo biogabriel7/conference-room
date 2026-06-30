@@ -19,3 +19,10 @@ re-measures once the real table mounts.
 Argentina is UTC-3 year-round (no DST). Shift UTC by -3h directly instead of relying
 on Intl time-zone data — simpler and safe in the Convex runtime. Saturday 11pm ART
 = Sunday 02:00 UTC (use that for `crons.weekly`).
+
+## Touch drag selection needs pointermove, not pointerenter
+Multi-slot timetable selection used `pointerenter` to extend the range. Touch devices
+don't fire enter events while dragging, so only single-slot bookings worked on mobile.
+Fix: `setPointerCapture` on pointerdown, track `pointermove` with
+`elementFromPoint` + `data-slot-*` attributes, and `touch-action: none` on slot
+targets so scroll doesn't cancel the gesture.

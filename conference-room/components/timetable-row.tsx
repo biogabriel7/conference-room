@@ -33,6 +33,7 @@ type TimetableRowProps = {
   metrics: SlotMetrics | null
   registerDayColumn: (slotDate: string, node: HTMLTableCellElement | null) => void
   onSlotPointerDown: (
+    event: React.PointerEvent<HTMLButtonElement>,
     slotDate: string,
     slotTime: TimeSlot,
     occupiedSlots: Set<string>
@@ -164,6 +165,8 @@ export const TimetableRow = memo(function TimetableRow({
                 >
                   <button
                     type="button"
+                    data-slot-date={slotDate}
+                    data-slot-time={slotTime}
                     onPointerDown={(event) =>
                       onMovePointerDown(event, displayBooking)
                     }
@@ -172,7 +175,7 @@ export const TimetableRow = memo(function TimetableRow({
                     }
                     aria-label={blockLabel}
                     className={cn(
-                      "cursor-grab text-left active:cursor-grabbing",
+                      "touch-none cursor-grab text-left active:cursor-grabbing",
                       isCompact
                         ? "absolute inset-0 rounded-md"
                         : "flex min-h-0 flex-1 flex-col gap-1 px-2 py-1"
@@ -188,11 +191,13 @@ export const TimetableRow = memo(function TimetableRow({
                   </button>
                   <div
                     aria-label="Drag to extend booking"
+                    data-slot-date={slotDate}
+                    data-slot-time={slotTime}
                     onPointerDown={(event) =>
                       onResizePointerDown(event, displayBooking)
                     }
                     className={cn(
-                      "absolute inset-x-0 bottom-0 z-10 shrink-0 cursor-ns-resize",
+                      "absolute inset-x-0 bottom-0 z-10 shrink-0 touch-none cursor-ns-resize",
                       isCompact
                         ? "h-1"
                         : cn(
@@ -207,14 +212,21 @@ export const TimetableRow = memo(function TimetableRow({
               <button
                 type="button"
                 disabled={slotIsPast}
-                onPointerDown={() =>
-                  onSlotPointerDown(slotDate, slotTime, dayMaps.occupiedSlots)
+                data-slot-date={slotDate}
+                data-slot-time={slotTime}
+                onPointerDown={(event) =>
+                  onSlotPointerDown(
+                    event,
+                    slotDate,
+                    slotTime,
+                    dayMaps.occupiedSlots
+                  )
                 }
                 onPointerEnter={() =>
                   onSlotPointerEnter(slotDate, slotTime, dayMaps)
                 }
                 className={cn(
-                  "block h-6 w-full rounded-md border border-transparent transition-colors",
+                  "block h-6 w-full touch-none rounded-md border border-transparent transition-colors",
                   slotIsPast
                     ? "cursor-not-allowed opacity-40"
                     : "hover:bg-muted/50",
