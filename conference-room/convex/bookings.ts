@@ -48,6 +48,76 @@ function bookingOccupiesSlot(
   )
 }
 
+// Argentina stays on UTC-3 all year (no DST), so we can shift UTC directly
+// rather than depending on Intl time-zone data being available at runtime.
+const BUENOS_AIRES_OFFSET_MS = 3 * 60 * 60 * 1000
+
+function timeToMinutes(time: string) {
+  const [hours, minutes] = time.split(":").map(Number)
+  return hours * 60 + minutes
+}
+
+function getBuenosAiresNow(now: number) {
+  const art = new Date(now - BUENOS_AIRES_OFFSET_MS)
+  const year = art.getUTCFullYear()
+  const month = String(art.getUTCMonth() + 1).padStart(2, "0")
+  const day = String(art.getUTCDate()).padStart(2, "0")
+
+  return {
+    dateKey: `${year}-${month}-${day}`,
+    minutes: art.getUTCHours() * 60 + art.getUTCMinutes(),
+  }
+}
+
+function isPastSlotAt(
+  slotDate: string,
+  slotTime: string,
+  now: number
+) {
+  const { dateKey, minutes } = getBuenosAiresNow(now)
+
+  if (slotDate < dateKey) {
+    return true
+  }
+
+  if (slotDate > dateKey) {
+    return false
+  }
+
+  return timeToMinutes(slotTime) < minutes
+}
+
+const BOOKING_GRACE_PERIOD_MS = 30_000
+
+function isBookingInGracePeriod(
+  booking: { createdAt: number; slotChangedAt?: number },
+  now: number
+) {
+  const anchor = Math.max(
+    booking.createdAt,
+    booking.slotChangedAt ?? booking.createdAt
+  )
+
+  return now - anchor <= BOOKING_GRACE_PERIOD_MS
+}
+
+function assertNotPastSlot(
+  slotDate: string,
+  slotTime: string,
+  now: number,
+  booking?: { createdAt: number; slotChangedAt?: number }
+) {
+  if (!isPastSlotAt(slotDate, slotTime, now)) {
+    return
+  }
+
+  if (booking && isBookingInGracePeriod(booking, now)) {
+    return
+  }
+
+  throw new Error("That time slot is in the past.")
+}
+
 export const listForWeek = query({
   args: {
     startDate: v.string(),
@@ -62,13 +132,20 @@ export const listForWeek = query({
       .collect()
 
     return rows
-      .map(({ _id, _creationTime, ...booking }) => ({
-        id: _id,
-        ...booking,
-        slotCount: booking.slotCount ?? 1,
-        slotTime: booking.slotTime,
-        createdAt: new Date(booking.createdAt).toISOString(),
-      }))
+      .map(({ _id, _creationTime, ...booking }) => {
+        void _creationTime
+
+        return {
+          id: _id,
+          ...booking,
+          slotCount: booking.slotCount ?? 1,
+          slotTime: booking.slotTime,
+          createdAt: new Date(booking.createdAt).toISOString(),
+          slotChangedAt: booking.slotChangedAt
+            ? new Date(booking.slotChangedAt).toISOString()
+            : new Date(booking.createdAt).toISOString(),
+        }
+      })
       .sort((a, b) =>
         a.slotDate === b.slotDate
           ? a.slotTime.localeCompare(b.slotTime)
@@ -98,6 +175,15 @@ export const create = mutation({
       throw new Error("That booking extends beyond the available hours.")
     }
 
+    const name = args.name.trim()
+    if (!name) {
+      throw new Error("Name is required.")
+    }
+
+    const now = Date.now()
+
+    assertNotPastSlot(args.slotDate, args.slotTime, now)
+
     const dayBookings = await ctx.db
       .query("bookings")
       .withIndex("by_slot_date", (q) => q.eq("slotDate", args.slotDate))
@@ -117,10 +203,11 @@ export const create = mutation({
       slotDate: args.slotDate,
       slotTime: args.slotTime,
       slotCount,
-      name: args.name,
+      name,
       company: args.company,
-      note: args.note,
-      createdAt: Date.now(),
+      note: args.note.trim(),
+      createdAt: now,
+      slotChangedAt: now,
     })
   },
 })
@@ -146,6 +233,10 @@ export const update = mutation({
       throw new Error("That booking extends beyond the available hours.")
     }
 
+    const now = Date.now()
+
+    assertNotPastSlot(args.slotDate, args.slotTime, now, booking)
+
     const dayBookings = await ctx.db
       .query("bookings")
       .withIndex("by_slot_date", (q) => q.eq("slotDate", args.slotDate))
@@ -166,6 +257,38 @@ export const update = mutation({
       slotDate: args.slotDate,
       slotTime: args.slotTime,
       slotCount,
+      slotChangedAt: now,
+    })
+  },
+})
+
+export const updateDetails = mutation({
+  args: {
+    id: v.id("bookings"),
+    name: v.string(),
+    company: v.union(
+      v.literal("nilo"),
+      v.literal("first-plug"),
+      v.literal("volantis")
+    ),
+    note: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const booking = await ctx.db.get(args.id)
+
+    if (!booking) {
+      throw new Error("Booking not found.")
+    }
+
+    const name = args.name.trim()
+    if (!name) {
+      throw new Error("Name is required.")
+    }
+
+    await ctx.db.patch(args.id, {
+      name,
+      company: args.company,
+      note: args.note.trim(),
     })
   },
 })
@@ -178,10 +301,6 @@ export const remove = mutation({
     await ctx.db.delete(args.id)
   },
 })
-
-// Argentina stays on UTC-3 all year (no DST), so we can shift UTC directly
-// rather than depending on Intl time-zone data being available at runtime.
-const BUENOS_AIRES_OFFSET_MS = 3 * 60 * 60 * 1000
 
 // First day (Monday) of the week that should be kept, in Buenos Aires time.
 // Everything dated before this is "last week or older" and gets purged.

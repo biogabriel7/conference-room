@@ -7,6 +7,8 @@ import { buildDaySlotMaps, formatTimeSlot, getSlotsForBooking } from "@/lib/cons
 import type { TimeSlot } from "@/lib/constants"
 import type { SlotMetrics } from "@/lib/booking-block-motion"
 import type { Booking } from "@/lib/types"
+import type { BuenosAiresNow } from "@/lib/buenos-aires"
+import { isPastSlotBlocked } from "@/lib/slot-validation"
 import { toDateKey } from "@/lib/week"
 import { cn } from "@/lib/utils"
 
@@ -24,6 +26,7 @@ type TimetableRowProps = {
   slotRowIndex: number
   weekDays: Date[]
   todayKey: string
+  now: BuenosAiresNow
   daySlotMaps: Map<string, DaySlotMaps>
   dragPreview: DragPreview | null
   movePreview: MovePreview | null
@@ -57,6 +60,7 @@ export const TimetableRow = memo(function TimetableRow({
   slotRowIndex,
   weekDays,
   todayKey,
+  now,
   daySlotMaps,
   dragPreview,
   movePreview,
@@ -119,6 +123,7 @@ export const TimetableRow = memo(function TimetableRow({
         const moveActive =
           moveForDay !== null && displayBooking?.id === moveForDay.booking.id
         const useOverlay = moveActive && Boolean(metrics)
+        const slotIsPast = isPastSlotBlocked(slotDate, slotTime, now)
 
         return (
           <td
@@ -173,6 +178,7 @@ export const TimetableRow = memo(function TimetableRow({
             ) : (
               <button
                 type="button"
+                disabled={slotIsPast}
                 onPointerDown={() =>
                   onSlotPointerDown(slotDate, slotTime, dayMaps.occupiedSlots)
                 }
@@ -180,7 +186,10 @@ export const TimetableRow = memo(function TimetableRow({
                   onSlotPointerEnter(slotDate, slotTime, dayMaps)
                 }
                 className={cn(
-                  "block h-6 w-full rounded-md border border-transparent transition-colors hover:bg-muted/50",
+                  "block h-6 w-full rounded-md border border-transparent transition-colors",
+                  slotIsPast
+                    ? "cursor-not-allowed opacity-40"
+                    : "hover:bg-muted/50",
                   previewActive &&
                     "border-primary/40 bg-primary/10 ring-1 ring-primary/20"
                 )}

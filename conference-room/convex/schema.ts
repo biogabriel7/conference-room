@@ -14,6 +14,7 @@ export default defineSchema({
     ),
     note: v.string(),
     createdAt: v.number(),
+    slotChangedAt: v.optional(v.number()),
   })
     .index("by_slot_date", ["slotDate"])
     .index("by_slot", ["slotDate", "slotTime"]),

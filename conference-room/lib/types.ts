@@ -9,4 +9,6 @@ export type Booking = {
   company: CompanyId
   note: string
   createdAt: string
+  /** Set on create and whenever the slot position changes. */
+  slotChangedAt?: string
 }

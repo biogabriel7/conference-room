@@ -13,10 +13,8 @@ export function LocalTimetable({ weekStart }: LocalTimetableProps) {
   const startDate = toDateKey(weekDays[0])
   const endDate = toDateKey(weekDays[4])
 
-  const { bookings, createBooking, removeBooking, updateBooking } = useLocalBookings(
-    startDate,
-    endDate
-  )
+  const { bookings, createBooking, removeBooking, updateBooking, updateBookingDetails } =
+    useLocalBookings(startDate, endDate)
 
   return (
     <TimetableShell
@@ -24,6 +22,7 @@ export function LocalTimetable({ weekStart }: LocalTimetableProps) {
       bookings={bookings}
       createBooking={createBooking}
       updateBooking={updateBooking}
+      updateBookingDetails={updateBookingDetails}
       removeBooking={removeBooking}
       isLocal
     />
