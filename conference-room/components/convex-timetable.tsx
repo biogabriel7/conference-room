@@ -1,10 +1,12 @@
 "use client"
 
+import { useCallback, useMemo } from "react"
 import { useMutation, useQuery } from "convex/react"
 
 import { TimetableShell } from "@/components/timetable-shell"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
+import type { CreateBookingInput, UpdateBookingInput } from "@/hooks/use-local-bookings"
 import { getWeekdayDates, toDateKey } from "@/lib/week"
 import type { Booking } from "@/lib/types"
 
@@ -13,7 +15,7 @@ type ConvexTimetableProps = {
 }
 
 export function ConvexTimetable({ weekStart }: ConvexTimetableProps) {
-  const weekDays = getWeekdayDates(weekStart)
+  const weekDays = useMemo(() => getWeekdayDates(weekStart), [weekStart])
   const startDate = toDateKey(weekDays[0])
   const endDate = toDateKey(weekDays[4])
 
@@ -22,24 +24,39 @@ export function ConvexTimetable({ weekStart }: ConvexTimetableProps) {
   const updateBookingMutation = useMutation(api.bookings.update)
   const removeBookingMutation = useMutation(api.bookings.remove)
 
+  const createBooking = useCallback(
+    async (input: CreateBookingInput) => {
+      await createBookingMutation(input)
+    },
+    [createBookingMutation]
+  )
+
+  const updateBooking = useCallback(
+    async (input: UpdateBookingInput) => {
+      await updateBookingMutation({
+        id: input.id as Id<"bookings">,
+        slotDate: input.slotDate,
+        slotTime: input.slotTime,
+        slotCount: input.slotCount,
+      })
+    },
+    [updateBookingMutation]
+  )
+
+  const removeBooking = useCallback(
+    async (id: string) => {
+      await removeBookingMutation({ id: id as Id<"bookings"> })
+    },
+    [removeBookingMutation]
+  )
+
   return (
     <TimetableShell
       weekStart={weekStart}
       bookings={bookings as Booking[] | undefined}
-      createBooking={async (input) => {
-        await createBookingMutation(input)
-      }}
-      updateBooking={async (input) => {
-        await updateBookingMutation({
-          id: input.id as Id<"bookings">,
-          slotDate: input.slotDate,
-          slotTime: input.slotTime,
-          slotCount: input.slotCount,
-        })
-      }}
-      removeBooking={async (id) => {
-        await removeBookingMutation({ id: id as Id<"bookings"> })
-      }}
+      createBooking={createBooking}
+      updateBooking={updateBooking}
+      removeBooking={removeBooking}
     />
   )
 }

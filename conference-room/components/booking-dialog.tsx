@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -57,6 +57,7 @@ export function BookingDialog({
   const [name, setName] = useState("")
   const [company, setCompany] = useState<string>("")
   const [note, setNote] = useState("")
+  const [companyError, setCompanyError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPending, setIsPending] = useState(false)
 
@@ -67,6 +68,7 @@ export function BookingDialog({
     setName("")
     setCompany("")
     setNote("")
+    setCompanyError(null)
     setError(null)
   }
 
@@ -83,8 +85,14 @@ export function BookingDialog({
       return
     }
 
+    if (!company) {
+      setCompanyError("Select a company.")
+      return
+    }
+
     setIsPending(true)
     setError(null)
+    setCompanyError(null)
 
     try {
       await createBooking({
@@ -181,14 +189,20 @@ export function BookingDialog({
                   required
                 />
               </Field>
-              <Field>
+              <Field data-invalid={companyError ? true : undefined}>
                 <FieldLabel htmlFor="company">Company</FieldLabel>
                 <Select
                   value={company}
-                  onValueChange={(value) => setCompany(value ?? "")}
-                  required
+                  onValueChange={(value) => {
+                    setCompany(value ?? "")
+                    setCompanyError(null)
+                  }}
                 >
-                  <SelectTrigger id="company" className="w-full">
+                  <SelectTrigger
+                    id="company"
+                    className="w-full"
+                    aria-invalid={companyError ? true : undefined}
+                  >
                     <SelectValue placeholder="Select company" />
                   </SelectTrigger>
                   <SelectContent>
@@ -201,6 +215,7 @@ export function BookingDialog({
                     </SelectGroup>
                   </SelectContent>
                 </Select>
+                <FieldError>{companyError}</FieldError>
               </Field>
               <Field>
                 <FieldLabel htmlFor="note">Note</FieldLabel>
@@ -223,7 +238,7 @@ export function BookingDialog({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isPending || !company}>
+              <Button type="submit" disabled={isPending}>
                 {isPending ? <Spinner data-icon="inline-start" /> : null}
                 Book
               </Button>

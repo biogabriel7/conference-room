@@ -1,5 +1,13 @@
-import { TimetablePage } from "@/components/timetable-page"
+import { TimetablePageClient } from "@/components/timetable-page-client"
+import { parseWeekParam } from "@/lib/week"
 
-export default function Page() {
-  return <TimetablePage />
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ week?: string }>
+}) {
+  const params = await searchParams
+  const weekStart = parseWeekParam(params.week)
+
+  return <TimetablePageClient weekStart={weekStart} />
 }

@@ -22,45 +22,61 @@ export function getWeekdayDates(weekStart: Date) {
   })
 }
 
+const weekdayFormatter = new Intl.DateTimeFormat("en", { weekday: "short" })
+const dayFormatter = new Intl.DateTimeFormat("en", {
+  day: "numeric",
+  month: "short",
+})
+const weekStartFormatter = new Intl.DateTimeFormat("en", {
+  day: "numeric",
+  month: "short",
+})
+const weekEndFormatter = new Intl.DateTimeFormat("en", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+})
+
 export function formatWeekday(date: Date) {
-  return new Intl.DateTimeFormat("en", { weekday: "short" }).format(date)
+  return weekdayFormatter.format(date)
 }
 
 export function formatDay(date: Date) {
-  return new Intl.DateTimeFormat("en", { day: "numeric", month: "short" }).format(
-    date
-  )
+  return dayFormatter.format(date)
 }
 
 export function formatWeekRange(weekStart: Date) {
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekStart.getDate() + 4)
 
-  const start = new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    month: "short",
-  }).format(weekStart)
+  return `${weekStartFormatter.format(weekStart)} – ${weekEndFormatter.format(weekEnd)}`
+}
 
-  const end = new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(weekEnd)
+export function getCurrentWeekStart() {
+  return startOfWeek(new Date())
+}
 
-  return `${start} – ${end}`
+export function clampWeekStart(weekStart: Date) {
+  const currentWeekStart = getCurrentWeekStart()
+
+  if (weekStart.getTime() < currentWeekStart.getTime()) {
+    return currentWeekStart
+  }
+
+  return weekStart
 }
 
 export function parseWeekParam(value: string | undefined) {
   if (!value) {
-    return startOfWeek(new Date())
+    return getCurrentWeekStart()
   }
 
   const parsed = new Date(`${value}T00:00:00`)
   if (Number.isNaN(parsed.getTime())) {
-    return startOfWeek(new Date())
+    return getCurrentWeekStart()
   }
 
-  return startOfWeek(parsed)
+  return clampWeekStart(startOfWeek(parsed))
 }
 
 export function shiftWeek(weekStart: Date, direction: -1 | 1) {

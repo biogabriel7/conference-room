@@ -1,37 +1,60 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useRef, useState } from "react"
+import dynamic from "next/dynamic"
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 
-import { BookingDialog } from "@/components/booking-dialog"
-import { Badge } from "@/components/ui/badge"
+import { BookingBlockOverlay } from "@/components/booking-block-overlay"
+import { TimetableNowLine } from "@/components/timetable-now-line"
+import { TimetableRow } from "@/components/timetable-row"
+import { useBuenosAiresNow } from "@/lib/buenos-aires"
+import {
+  getOrderedSlotRange,
+  getSlotsForBooking,
+  type DragPreview,
+  type MovePreview,
+  type ResizePreview,
+  TIME_COLUMN_HEADER_CLASS,
+} from "@/components/timetable-shell.shared"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import type {
   CreateBookingInput,
   UpdateBookingInput,
 } from "@/hooks/use-local-bookings"
+import { useSlotMetrics } from "@/hooks/use-slot-metrics"
 import {
   TIME_SLOTS,
   buildDaySlotMaps,
   canPlaceBookingAt,
-  formatTimeRange,
-  formatTimeSlot,
-  getCompanyLabel,
-  getOrderedSlotRange,
   getResizeSlotCount,
-  getSlotsForBooking,
 } from "@/lib/constants"
 import type { TimeSlot } from "@/lib/constants"
 import type { Booking } from "@/lib/types"
 import {
   formatWeekRange,
   formatWeekday,
+  getCurrentWeekStart,
   getWeekdayDates,
   shiftWeek,
   toDateKey,
 } from "@/lib/week"
 import { cn } from "@/lib/utils"
+
+const BookingDialog = dynamic(
+  () =>
+    import("@/components/booking-dialog").then((module) => ({
+      default: module.BookingDialog,
+    })),
+  { ssr: false }
+)
 
 type TimetableShellProps = {
   weekStart: Date
@@ -47,51 +70,6 @@ type SlotSelection = {
   slotTime: TimeSlot
   slotCount: number
   booking?: Booking
-}
-
-type DragPreview = {
-  slotDate: string
-  startTime: TimeSlot
-  endTime: TimeSlot
-}
-
-type ResizePreview = {
-  booking: Booking
-  slotCount: number
-}
-
-type MovePreview = {
-  booking: Booking
-  slotDate: string
-  slotTime: TimeSlot
-}
-
-function companyBadgeVariant(company: string) {
-  if (company === "nilo") {
-    return "default" as const
-  }
-  if (company === "first-plug") {
-    return "secondary" as const
-  }
-  return "outline" as const
-}
-
-function isSlotInPreview(
-  slotDate: string,
-  slotTime: TimeSlot,
-  preview: DragPreview | null
-) {
-  if (!preview || preview.slotDate !== slotDate) {
-    return false
-  }
-
-  const { startTime, slotCount } = getOrderedSlotRange(
-    preview.startTime,
-    preview.endTime
-  )
-  const slots = getSlotsForBooking(startTime, slotCount)
-
-  return slots.includes(slotTime)
 }
 
 export function TimetableShell({
@@ -113,20 +91,35 @@ export function TimetableShell({
   const dragPreviewRef = useRef<DragPreview | null>(null)
   const resizePreviewRef = useRef<ResizePreview | null>(null)
   const movePreviewRef = useRef<MovePreview | null>(null)
+  const updateBookingRef = useRef(updateBooking)
+  const daySlotMapsRef = useRef<
+    Map<string, ReturnType<typeof buildDaySlotMaps<Booking>>>
+  >(new Map())
+
+  updateBookingRef.current = updateBooking
 
   const weekDays = useMemo(() => getWeekdayDates(weekStart), [weekStart])
-  const previousWeek = shiftWeek(weekStart, -1)
-  const nextWeek = shiftWeek(weekStart, 1)
+  const weekDateKeys = useMemo(() => weekDays.map(toDateKey), [weekDays])
+  const { dateKey: todayKey } = useBuenosAiresNow()
+  const currentWeekStart = getCurrentWeekStart()
+  const canGoPrevious = weekStart.getTime() > currentWeekStart.getTime()
+  const previousWeek = useMemo(() => shiftWeek(weekStart, -1), [weekStart])
+  const nextWeek = useMemo(() => shiftWeek(weekStart, 1), [weekStart])
+  const weekKey = toDateKey(weekStart)
+  const { tableContainerRef, tbodyRef, registerDayColumn, metrics } =
+    useSlotMetrics(weekKey, bookings !== undefined)
+
+  const hiddenBookingId = movePreview?.booking.id ?? resizePreview?.booking.id
 
   const displayBookings = useMemo(() => {
     const list = bookings ?? []
 
-    if (!movePreview) {
+    if (!hiddenBookingId) {
       return list
     }
 
-    return list.filter((booking) => booking.id !== movePreview.booking.id)
-  }, [bookings, movePreview])
+    return list.filter((booking) => booking.id !== hiddenBookingId)
+  }, [bookings, hiddenBookingId])
 
   const daySlotMaps = useMemo(() => {
     const maps = new Map<
@@ -142,27 +135,32 @@ export function TimetableShell({
     return maps
   }, [displayBookings, weekDays])
 
-  useEffect(() => {
-    dragPreviewRef.current = dragPreview
-  }, [dragPreview])
+  daySlotMapsRef.current = daySlotMaps
 
-  useEffect(() => {
-    resizePreviewRef.current = resizePreview
-  }, [resizePreview])
+  const syncDragPreview = useCallback((preview: DragPreview | null) => {
+    dragPreviewRef.current = preview
+    startTransition(() => setDragPreview(preview))
+  }, [])
 
-  useEffect(() => {
-    movePreviewRef.current = movePreview
-  }, [movePreview])
+  const syncMovePreview = useCallback((preview: MovePreview | null) => {
+    movePreviewRef.current = preview
+    startTransition(() => setMovePreview(preview))
+  }, [])
+
+  const syncResizePreview = useCallback((preview: ResizePreview | null) => {
+    resizePreviewRef.current = preview
+    startTransition(() => setResizePreview(preview))
+  }, [])
 
   useEffect(() => {
     function stopPointerInteraction() {
       if (isResizingRef.current) {
         const preview = resizePreviewRef.current
         isResizingRef.current = false
-        setResizePreview(null)
+        syncResizePreview(null)
 
         if (preview && preview.slotCount !== preview.booking.slotCount) {
-          void updateBooking({
+          void updateBookingRef.current({
             id: preview.booking.id,
             slotDate: preview.booking.slotDate,
             slotTime: preview.booking.slotTime,
@@ -178,10 +176,10 @@ export function TimetableShell({
         const didMove = moveDidChangeRef.current
         isMovingRef.current = false
         moveDidChangeRef.current = false
-        setMovePreview(null)
+        syncMovePreview(null)
 
         if (preview && didMove) {
-          void updateBooking({
+          void updateBookingRef.current({
             id: preview.booking.id,
             slotDate: preview.slotDate,
             slotTime: preview.slotTime,
@@ -203,11 +201,11 @@ export function TimetableShell({
 
       if (!isDraggingRef.current || !preview) {
         isDraggingRef.current = false
-        setDragPreview(null)
+        syncDragPreview(null)
         return
       }
 
-      const dayMaps = daySlotMaps.get(preview.slotDate)
+      const dayMaps = daySlotMapsRef.current.get(preview.slotDate)
       const { startTime, slotCount } = getOrderedSlotRange(
         preview.startTime,
         preview.endTime
@@ -218,7 +216,7 @@ export function TimetableShell({
       )
 
       isDraggingRef.current = false
-      setDragPreview(null)
+      syncDragPreview(null)
 
       if (!overlaps) {
         setSelection({
@@ -231,124 +229,124 @@ export function TimetableShell({
 
     window.addEventListener("pointerup", stopPointerInteraction)
     return () => window.removeEventListener("pointerup", stopPointerInteraction)
-  }, [daySlotMaps, updateBooking])
+  }, [syncDragPreview, syncMovePreview, syncResizePreview])
 
-  function handleSlotPointerDown(
-    slotDate: string,
-    slotTime: TimeSlot,
-    occupiedSlots: Set<string>
-  ) {
-    if (
-      isResizingRef.current ||
-      isMovingRef.current ||
-      occupiedSlots.has(slotTime)
-    ) {
-      return
-    }
-
-    isDraggingRef.current = true
-    setDragPreview({
-      slotDate,
-      startTime: slotTime,
-      endTime: slotTime,
-    })
-  }
-
-  function handleSlotPointerEnter(
-    slotDate: string,
-    slotTime: TimeSlot,
-    dayMaps: ReturnType<typeof buildDaySlotMaps<Booking>>
-  ) {
-    if (isMovingRef.current && movePreviewRef.current) {
-      const booking = movePreviewRef.current.booking
-
+  const handleSlotPointerDown = useCallback(
+    (slotDate: string, slotTime: TimeSlot, occupiedSlots: Set<string>) => {
       if (
-        canPlaceBookingAt(
-          slotTime,
-          booking.slotCount,
-          dayMaps.slotToBooking
-        )
+        isResizingRef.current ||
+        isMovingRef.current ||
+        occupiedSlots.has(slotTime)
       ) {
-        moveDidChangeRef.current =
-          slotDate !== booking.slotDate || slotTime !== booking.slotTime
-        setMovePreview({
-          booking,
-          slotDate,
-          slotTime,
-        })
+        return
       }
 
-      return
-    }
+      isDraggingRef.current = true
+      syncDragPreview({
+        slotDate,
+        startTime: slotTime,
+        endTime: slotTime,
+      })
+    },
+    [syncDragPreview]
+  )
 
-    if (isResizingRef.current && resizePreviewRef.current) {
-      const preview = resizePreviewRef.current
-      const slotCount = getResizeSlotCount(
-        preview.booking,
-        slotTime,
-        dayMaps.slotToBooking
+  const handleSlotPointerEnter = useCallback(
+    (
+      slotDate: string,
+      slotTime: TimeSlot,
+      dayMaps: ReturnType<typeof buildDaySlotMaps<Booking>>
+    ) => {
+      if (isMovingRef.current && movePreviewRef.current) {
+        const booking = movePreviewRef.current.booking
+
+        if (
+          canPlaceBookingAt(slotTime, booking.slotCount, dayMaps.slotToBooking)
+        ) {
+          moveDidChangeRef.current =
+            slotDate !== booking.slotDate || slotTime !== booking.slotTime
+          syncMovePreview({
+            booking,
+            slotDate,
+            slotTime,
+          })
+        }
+
+        return
+      }
+
+      if (isResizingRef.current && resizePreviewRef.current) {
+        const preview = resizePreviewRef.current
+        const slotCount = getResizeSlotCount(
+          preview.booking,
+          slotTime,
+          dayMaps.slotToBooking
+        )
+
+        syncResizePreview({
+          booking: preview.booking,
+          slotCount,
+        })
+        return
+      }
+
+      const preview = dragPreviewRef.current
+
+      if (!isDraggingRef.current || !preview || preview.slotDate !== slotDate) {
+        return
+      }
+
+      const { startTime, endTime, slotCount } = getOrderedSlotRange(
+        preview.startTime,
+        slotTime
+      )
+      const slots = getSlotsForBooking(startTime, slotCount)
+      const overlaps = slots.some((candidate) =>
+        dayMaps.occupiedSlots.has(candidate)
       )
 
-      setResizePreview({
-        booking: preview.booking,
-        slotCount,
+      if (overlaps) {
+        return
+      }
+
+      syncDragPreview({
+        slotDate,
+        startTime: preview.startTime,
+        endTime,
       })
-      return
-    }
+    },
+    [syncDragPreview, syncMovePreview, syncResizePreview]
+  )
 
-    if (!isDraggingRef.current || !dragPreview || dragPreview.slotDate !== slotDate) {
-      return
-    }
+  const handleMovePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>, booking: Booking) => {
+      event.preventDefault()
+      event.stopPropagation()
 
-    const { startTime, endTime, slotCount } = getOrderedSlotRange(
-      dragPreview.startTime,
-      slotTime
-    )
-    const slots = getSlotsForBooking(startTime, slotCount)
-    const overlaps = slots.some((candidate) =>
-      dayMaps.occupiedSlots.has(candidate)
-    )
+      isMovingRef.current = true
+      moveDidChangeRef.current = false
+      syncMovePreview({
+        booking,
+        slotDate: booking.slotDate,
+        slotTime: booking.slotTime as TimeSlot,
+      })
+    },
+    [syncMovePreview]
+  )
 
-    if (overlaps) {
-      return
-    }
+  const handleResizePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>, booking: Booking) => {
+      event.preventDefault()
+      event.stopPropagation()
 
-    setDragPreview({
-      slotDate,
-      startTime: dragPreview.startTime,
-      endTime,
-    })
-  }
-
-  function handleMovePointerDown(
-    event: React.PointerEvent<HTMLButtonElement>,
-    booking: Booking
-  ) {
-    event.preventDefault()
-    event.stopPropagation()
-
-    isMovingRef.current = true
-    moveDidChangeRef.current = false
-    setMovePreview({
-      booking,
-      slotDate: booking.slotDate,
-      slotTime: booking.slotTime as TimeSlot,
-    })
-  }
-
-  function handleResizePointerDown(
-    event: React.PointerEvent<HTMLDivElement>,
-    booking: Booking
-  ) {
-    event.preventDefault()
-    event.stopPropagation()
-
-    isResizingRef.current = true
-    setResizePreview({
-      booking,
-      slotCount: booking.slotCount,
-    })
-  }
+      isResizingRef.current = true
+      syncResizePreview({
+        booking,
+        slotCount: booking.slotCount,
+      })
+    },
+    [syncResizePreview]
+  )
 
   if (bookings === undefined) {
     return (
@@ -373,17 +371,25 @@ export function TimetableShell({
 
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
-            <h1 className="text-lg font-medium tracking-tight">Conference room</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Conference room
+            </h1>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              nativeButton={false}
-              render={<Link href={`/?week=${toDateKey(previousWeek)}`} />}
-            >
-              Previous
-            </Button>
+            {canGoPrevious ? (
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={<Link href={`/?week=${toDateKey(previousWeek)}`} />}
+              >
+                Previous
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" disabled>
+                Previous
+              </Button>
+            )}
             <span className="min-w-36 text-center text-sm text-muted-foreground">
               {formatWeekRange(weekStart)}
             </span>
@@ -398,201 +404,92 @@ export function TimetableShell({
           </div>
         </header>
 
-        <div className="overflow-x-auto rounded-xl border">
+        <div
+          ref={tableContainerRef}
+          className="relative overflow-x-auto rounded-xl border bg-background"
+        >
           <table className="w-full min-w-[640px] border-collapse text-sm">
             <thead>
-              <tr className="border-b bg-muted/30">
-                <th className="w-20 px-3 py-2 text-left font-medium text-muted-foreground">
-                  Time
-                </th>
-                {weekDays.map((day) => (
-                  <th
-                    key={toDateKey(day)}
-                    className="px-3 py-2 text-left font-medium"
-                  >
-                    <div className="flex flex-col">
-                      <span>{formatWeekday(day)}</span>
-                      <span className="text-xs font-normal text-muted-foreground">
-                        {day.getDate()}
-                      </span>
-                    </div>
-                  </th>
-                ))}
+              <tr className="border-b">
+                <th className={TIME_COLUMN_HEADER_CLASS} aria-hidden />
+                {weekDays.map((day, dayIndex) => {
+                  const isToday = toDateKey(day) === todayKey
+
+                  return (
+                    <th
+                      key={toDateKey(day)}
+                      aria-current={isToday ? "date" : undefined}
+                      className={cn(
+                        "px-3 py-2 text-left font-medium",
+                        isToday ? "bg-foreground/[0.06]" : "bg-background",
+                        dayIndex > 0 && "border-l border-border/40"
+                      )}
+                    >
+                      <div className="flex flex-col">
+                        <span className={cn(isToday && "text-foreground")}>
+                          {formatWeekday(day)}
+                        </span>
+                        <span
+                          className={cn(
+                            "text-xs font-normal",
+                            isToday
+                              ? "font-medium text-foreground"
+                              : "text-muted-foreground"
+                          )}
+                        >
+                          {day.getDate()}
+                        </span>
+                      </div>
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
-            <tbody>
-              {TIME_SLOTS.map((slotTime) => (
-                <tr key={slotTime} className="h-6 border-b last:border-b-0">
-                  <td className="px-3 py-0.5 align-top text-xs text-muted-foreground">
-                    {slotTime.endsWith(":00") ? formatTimeSlot(slotTime) : ""}
-                  </td>
-                  {weekDays.map((day) => {
-                    const slotDate = toDateKey(day)
-                    const dayMaps = daySlotMaps.get(slotDate)
-
-                    if (!dayMaps) {
-                      return null
-                    }
-
-                    const resizeForDay =
-                      resizePreview?.booking.slotDate === slotDate
-                        ? resizePreview
-                        : null
-                    const resizePreviewSlots = resizeForDay
-                      ? getSlotsForBooking(
-                          resizeForDay.booking.slotTime,
-                          resizeForDay.slotCount
-                        )
-                      : []
-                    const isResizeContinuation =
-                      resizeForDay !== null &&
-                      resizePreviewSlots.includes(slotTime) &&
-                      resizePreviewSlots[0] !== slotTime
-
-                    const moveForDay =
-                      movePreview?.slotDate === slotDate ? movePreview : null
-                    const movePreviewSlots = moveForDay
-                      ? getSlotsForBooking(
-                          moveForDay.slotTime,
-                          moveForDay.booking.slotCount
-                        )
-                      : []
-                    const isMoveContinuation =
-                      moveForDay !== null &&
-                      movePreviewSlots.includes(slotTime) &&
-                      movePreviewSlots[0] !== slotTime
-
-                    if (
-                      dayMaps.continuationSlots.has(slotTime) ||
-                      isResizeContinuation ||
-                      isMoveContinuation
-                    ) {
-                      return null
-                    }
-
-                    const booking = dayMaps.startBySlot.get(slotTime)
-                    const isMovePreviewStart =
-                      moveForDay?.slotTime === slotTime
-                    const isResizePreviewStart =
-                      resizeForDay?.booking.slotTime === slotTime
-                    const displayBooking =
-                      booking ??
-                      (isMovePreviewStart
-                        ? moveForDay?.booking
-                        : isResizePreviewStart
-                          ? resizeForDay?.booking
-                          : undefined)
-                    const slotCount = isMovePreviewStart
-                      ? moveForDay!.booking.slotCount
-                      : isResizePreviewStart && resizeForDay
-                        ? resizeForDay.slotCount
-                        : booking?.slotCount ?? 1
-                    const previewActive = isSlotInPreview(
-                      slotDate,
-                      slotTime,
-                      dragPreview
-                    )
-                    const moveActive =
-                      moveForDay !== null &&
-                      displayBooking?.id === moveForDay.booking.id
-                    const resizeActive =
-                      resizeForDay !== null &&
-                      displayBooking?.id === resizeForDay.booking.id
-
-                    return (
-                      <td
-                        key={`${slotDate}_${slotTime}`}
-                        rowSpan={displayBooking ? slotCount : 1}
-                        className={cn(
-                          "p-0.5 align-top",
-                          displayBooking && "relative h-px"
-                        )}
-                      >
-                        {displayBooking ? (
-                          <div
-                            className={cn(
-                              "absolute inset-0.5 flex flex-col rounded-md border bg-muted/20",
-                              moveActive || resizeActive
-                                ? "border-primary/40 ring-1 ring-primary/20"
-                                : "border-border"
-                            )}
-                          >
-                            <button
-                              type="button"
-                              onPointerDown={(event) =>
-                                handleMovePointerDown(event, displayBooking)
-                              }
-                              onPointerEnter={() =>
-                                handleSlotPointerEnter(
-                                  slotDate,
-                                  slotTime,
-                                  dayMaps
-                                )
-                              }
-                              className="flex min-h-0 flex-1 cursor-grab flex-col gap-1 px-2 py-1 text-left active:cursor-grabbing"
-                            >
-                              <span className="truncate text-sm font-medium">
-                                {displayBooking.name}
-                              </span>
-                              <Badge
-                                variant={companyBadgeVariant(displayBooking.company)}
-                                className="w-fit"
-                              >
-                                {getCompanyLabel(displayBooking.company)}
-                              </Badge>
-                              <span className="text-xs text-muted-foreground">
-                                {formatTimeRange(
-                                  isMovePreviewStart
-                                    ? moveForDay!.slotTime
-                                    : displayBooking.slotTime,
-                                  slotCount
-                                )}
-                              </span>
-                              {displayBooking.note ? (
-                                <span className="line-clamp-3 text-xs text-muted-foreground">
-                                  {displayBooking.note}
-                                </span>
-                              ) : null}
-                            </button>
-                            <div
-                              aria-label="Drag to extend booking"
-                              onPointerDown={(event) =>
-                                handleResizePointerDown(event, displayBooking)
-                              }
-                              className="absolute inset-x-1 bottom-0 z-10 h-2.5 shrink-0 cursor-ns-resize rounded-b-md hover:bg-primary/30 active:bg-primary/40"
-                            />
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onPointerDown={() =>
-                              handleSlotPointerDown(
-                                slotDate,
-                                slotTime,
-                                dayMaps.occupiedSlots
-                              )
-                            }
-                            onPointerEnter={() =>
-                              handleSlotPointerEnter(
-                                slotDate,
-                                slotTime,
-                                dayMaps
-                              )
-                            }
-                            className={cn(
-                              "block h-6 w-full rounded-md border border-transparent transition-colors hover:bg-muted/50",
-                              previewActive &&
-                                "border-primary/40 bg-primary/10 ring-1 ring-primary/20"
-                            )}
-                          />
-                        )}
-                      </td>
-                    )
-                  })}
-                </tr>
+            <tbody ref={tbodyRef}>
+              {TIME_SLOTS.map((slotTime, slotRowIndex) => (
+                <TimetableRow
+                  key={slotTime}
+                  slotTime={slotTime}
+                  slotRowIndex={slotRowIndex}
+                  weekDays={weekDays}
+                  todayKey={todayKey}
+                  daySlotMaps={daySlotMaps}
+                  dragPreview={dragPreview}
+                  movePreview={movePreview}
+                  metrics={metrics}
+                  registerDayColumn={registerDayColumn}
+                  onSlotPointerDown={handleSlotPointerDown}
+                  onSlotPointerEnter={handleSlotPointerEnter}
+                  onMovePointerDown={handleMovePointerDown}
+                  onResizePointerDown={handleResizePointerDown}
+                />
               ))}
             </tbody>
           </table>
+
+          {metrics ? (
+            <TimetableNowLine metrics={metrics} weekDateKeys={weekDateKeys} />
+          ) : null}
+
+          {metrics && movePreview ? (
+            <BookingBlockOverlay
+              booking={movePreview.booking}
+              slotDate={movePreview.slotDate}
+              slotTime={movePreview.slotTime}
+              slotCount={movePreview.booking.slotCount}
+              metrics={metrics}
+            />
+          ) : null}
+
+          {metrics && resizePreview ? (
+            <BookingBlockOverlay
+              booking={resizePreview.booking}
+              slotDate={resizePreview.booking.slotDate}
+              slotTime={resizePreview.booking.slotTime as TimeSlot}
+              slotCount={resizePreview.slotCount}
+              metrics={metrics}
+            />
+          ) : null}
         </div>
       </div>
 

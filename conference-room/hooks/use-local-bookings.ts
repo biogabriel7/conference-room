@@ -7,6 +7,12 @@ import { getSlotsForBooking } from "@/lib/constants"
 import type { Booking } from "@/lib/types"
 
 const STORAGE_KEY = "conference-room-local-bookings"
+const STORAGE_VERSION = 1
+
+type StoredBookings = {
+  v: number
+  bookings: Booking[]
+}
 
 export type UpdateBookingInput = {
   id: string
@@ -35,8 +41,24 @@ function sortBookings(bookings: Booking[]) {
 function readBookings(): Booking[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
-    const parsed = stored ? (JSON.parse(stored) as Booking[]) : []
-    return parsed.map((booking) => ({
+    if (!stored) {
+      return []
+    }
+
+    const parsed = JSON.parse(stored) as StoredBookings | Booking[]
+
+    if (Array.isArray(parsed)) {
+      return parsed.map((booking) => ({
+        ...booking,
+        slotCount: booking.slotCount ?? 1,
+      }))
+    }
+
+    if (parsed.v !== STORAGE_VERSION || !Array.isArray(parsed.bookings)) {
+      return []
+    }
+
+    return parsed.bookings.map((booking) => ({
       ...booking,
       slotCount: booking.slotCount ?? 1,
     }))
@@ -79,7 +101,8 @@ function getServerSnapshot() {
 
 function writeBookings(next: Booking[]) {
   bookingsStore = next
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  const payload: StoredBookings = { v: STORAGE_VERSION, bookings: next }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
   emitChange()
 }
 

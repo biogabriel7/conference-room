@@ -1,7 +1,9 @@
 export const SLOT_DURATION_MINUTES = 15
 
 const DAY_START_MINUTES = 8 * 60
-const DAY_END_MINUTES = 17 * 60
+// Last bookable slot starts at 17:45 and ends at 18:00 (6pm).
+const DAY_END_MINUTES = 18 * 60
+const LAST_SLOT_START_MINUTES = DAY_END_MINUTES - SLOT_DURATION_MINUTES
 
 function minutesToTime(totalMinutes: number) {
   const hours = Math.floor(totalMinutes / 60)
@@ -19,7 +21,7 @@ function generateTimeSlots() {
 
   for (
     let minutes = DAY_START_MINUTES;
-    minutes <= DAY_END_MINUTES;
+    minutes <= LAST_SLOT_START_MINUTES;
     minutes += SLOT_DURATION_MINUTES
   ) {
     slots.push(minutesToTime(minutes))

@@ -6,6 +6,10 @@ export const COMPANIES = [
 
 export type CompanyId = (typeof COMPANIES)[number]["id"]
 
+const COMPANY_LABELS = new Map<string, string>(
+  COMPANIES.map((company) => [company.id, company.label])
+)
+
 export {
   TIME_SLOTS,
   SLOT_DURATION_MINUTES,
@@ -22,5 +26,5 @@ export {
 export type { TimeSlot } from "@/lib/time-slots"
 
 export function getCompanyLabel(companyId: string) {
-  return COMPANIES.find((company) => company.id === companyId)?.label ?? companyId
+  return COMPANY_LABELS.get(companyId) ?? companyId
 }

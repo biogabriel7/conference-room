@@ -1,10 +1,11 @@
 import { v } from "convex/values"
 
-import { mutation, query } from "./_generated/server"
+import { internalMutation, mutation, query } from "./_generated/server"
 
 const SLOT_DURATION_MINUTES = 15
 const DAY_START_MINUTES = 8 * 60
-const DAY_END_MINUTES = 17 * 60
+const DAY_END_MINUTES = 18 * 60
+const LAST_SLOT_START_MINUTES = DAY_END_MINUTES - SLOT_DURATION_MINUTES
 
 function minutesToTime(totalMinutes: number) {
   const hours = Math.floor(totalMinutes / 60)
@@ -17,7 +18,7 @@ function generateTimeSlots() {
 
   for (
     let minutes = DAY_START_MINUTES;
-    minutes <= DAY_END_MINUTES;
+    minutes <= LAST_SLOT_START_MINUTES;
     minutes += SLOT_DURATION_MINUTES
   ) {
     slots.push(minutesToTime(minutes))
@@ -175,5 +176,51 @@ export const remove = mutation({
   },
   handler: async (ctx, args) => {
     await ctx.db.delete(args.id)
+  },
+})
+
+// Argentina stays on UTC-3 all year (no DST), so we can shift UTC directly
+// rather than depending on Intl time-zone data being available at runtime.
+const BUENOS_AIRES_OFFSET_MS = 3 * 60 * 60 * 1000
+
+// First day (Monday) of the week that should be kept, in Buenos Aires time.
+// Everything dated before this is "last week or older" and gets purged.
+function upcomingMondayKey(now: number) {
+  const art = new Date(now - BUENOS_AIRES_OFFSET_MS)
+  const isoWeekday = art.getUTCDay() === 0 ? 7 : art.getUTCDay() // Mon=1..Sun=7
+  const daysUntilMonday = (8 - isoWeekday) % 7 || 7
+
+  const monday = new Date(
+    Date.UTC(
+      art.getUTCFullYear(),
+      art.getUTCMonth(),
+      art.getUTCDate() + daysUntilMonday
+    )
+  )
+
+  const year = monday.getUTCFullYear()
+  const month = String(monday.getUTCMonth() + 1).padStart(2, "0")
+  const day = String(monday.getUTCDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+// Scheduled weekly (see crons.ts) for Saturday 11pm Buenos Aires. Deletes every
+// booking dated before next Monday — i.e. the week that just ended and anything
+// older — while leaving future weeks' bookings untouched.
+export const purgePastWeeks = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = upcomingMondayKey(Date.now())
+
+    const stale = await ctx.db
+      .query("bookings")
+      .withIndex("by_slot_date", (q) => q.lt("slotDate", cutoff))
+      .collect()
+
+    for (const booking of stale) {
+      await ctx.db.delete(booking._id)
+    }
+
+    return { cutoff, deleted: stale.length }
   },
 })
