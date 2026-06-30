@@ -347,15 +347,17 @@ export function CollaborativeTextPage() {
 
   return (
     <>
-      <TextIdentityDialog
-        open={!identity}
-        onContinue={(nextIdentity) => {
-          setIdentity({
-            sessionId: getTextSessionId(),
-            ...nextIdentity,
-          })
-        }}
-      />
+      {!identity ? (
+        <TextIdentityDialog
+          open
+          onContinue={(nextIdentity) => {
+            setIdentity({
+              sessionId: getTextSessionId(),
+              ...nextIdentity,
+            })
+          }}
+        />
+      ) : null}
 
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-6">
         <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">

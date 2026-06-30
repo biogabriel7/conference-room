@@ -41,7 +41,7 @@ export function TextIdentityDialog({
   }
 
   return (
-    <Dialog open={open}>
+    <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>Join the report</DialogTitle>
