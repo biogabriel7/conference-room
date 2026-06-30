@@ -16,6 +16,7 @@ import type { Id } from "@/convex/_generated/dataModel"
 import {
   PRESENCE_KEEPALIVE_MS,
   PRESENCE_QUERY_TICK_MS,
+  PRESENCE_STALE_MS,
   useCollaborativeTextSync,
 } from "@/hooks/use-collaborative-text-sync"
 import { getCompanyLabel } from "@/lib/constants"
@@ -71,7 +72,7 @@ export function CollaborativeTextPage() {
   )
   const textMeta = useQuery(
     api.text.getTextMeta,
-    isConvexEnabled ? { now } : "skip"
+    isConvexEnabled ? {} : "skip"
   )
 
   const ensureDocument = useMutation(api.text.ensureDocument)
@@ -300,10 +301,14 @@ export function CollaborativeTextPage() {
   const activePresence = useMemo(
     () =>
       (textMeta?.presence ?? []).filter(
-        (entry) => entry.sessionId !== identity?.sessionId
+        (entry) =>
+          entry.sessionId !== identity?.sessionId &&
+          now - entry.lastSeen <= PRESENCE_STALE_MS
       ),
-    [identity?.sessionId, textMeta?.presence]
+    [identity?.sessionId, now, textMeta?.presence]
   )
+
+  const recentEdits = useMemo(() => textMeta?.edits ?? [], [textMeta?.edits])
 
   const authors = useMemo(() => {
     const map = new Map<string, { name: string; company: CompanyId }>()
@@ -424,7 +429,7 @@ export function CollaborativeTextPage() {
           </div>
         ) : null}
 
-        {!textContent || !textMeta ? (
+        {!textContent ? (
           <div className="flex min-h-48 items-center justify-center rounded-xl border">
             <Spinner />
           </div>
@@ -592,12 +597,12 @@ export function CollaborativeTextPage() {
               <section className="rounded-xl border bg-background p-4">
                 <h2 className="text-sm font-medium">Recent edits</h2>
                 <ul className="mt-3 flex max-h-[32rem] flex-col gap-3 overflow-y-auto">
-                  {(textMeta.edits ?? []).length === 0 ? (
+                  {recentEdits.length === 0 ? (
                     <li className="text-sm text-muted-foreground">
                       Edits will appear here after you pause typing.
                     </li>
                   ) : (
-                    textMeta.edits.map((edit, index) => (
+                    recentEdits.map((edit, index) => (
                       <li key={edit._id} className="text-sm">
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge

@@ -133,12 +133,13 @@ export const getTextContent = query({
 export const getTextMeta = query({
   args: {
     slug: v.optional(v.string()),
-    now: v.number(),
   },
   handler: async (ctx, args) => {
     const slug = args.slug ?? DEFAULT_SLUG
-    const now = args.now
 
+    // No time argument here on purpose: passing a changing `now` would
+    // re-subscribe the query on every tick, briefly returning undefined and
+    // unmounting the editor. The client filters stale presence by lastSeen.
     const presence = await ctx.db
       .query("textPresence")
       .withIndex("by_slug", (query) => query.eq("slug", slug))
@@ -156,9 +157,9 @@ export const getTextMeta = query({
     )
 
     return {
-      presence: presence
-        .filter((entry) => now - entry.lastSeen <= PRESENCE_TTL_MS)
-        .sort((left, right) => left.name.localeCompare(right.name)),
+      presence: presence.sort((left, right) =>
+        left.name.localeCompare(right.name)
+      ),
       edits,
     }
   },

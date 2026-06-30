@@ -315,3 +315,4 @@ export function useCollaborativeTextSync({
 
 export const PRESENCE_KEEPALIVE_MS = 5_000
 export const PRESENCE_QUERY_TICK_MS = 12_000
+export const PRESENCE_STALE_MS = 30_000
