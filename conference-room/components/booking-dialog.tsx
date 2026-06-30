@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 
 import {
   COMPANIES,
@@ -12,13 +12,7 @@ import type {
   UpdateBookingDetailsInput,
 } from "@/hooks/use-local-bookings"
 import type { Booking } from "@/lib/types"
-import { getBuenosAiresNow } from "@/lib/buenos-aires"
-import {
-  getBookingErrorMessage,
-  getBookingGraceRemainingMs,
-  isBookingInGracePeriod,
-  isPastSlot,
-} from "@/lib/slot-validation"
+import { getBookingErrorMessage } from "@/lib/slot-validation"
 import { formatDay, formatWeekday } from "@/lib/week"
 import { Button } from "@/components/ui/button"
 import {
@@ -65,33 +59,6 @@ type BookingFormProps = {
   onClose: () => void
 }
 
-function GracePeriodNotice({ booking }: { booking: Booking }) {
-  const [remainingMs, setRemainingMs] = useState(() =>
-    getBookingGraceRemainingMs(booking)
-  )
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setRemainingMs(getBookingGraceRemainingMs(booking))
-    }, 1000)
-
-    return () => window.clearInterval(id)
-  }, [booking])
-
-  if (remainingMs <= 0) {
-    return null
-  }
-
-  const seconds = Math.ceil(remainingMs / 1000)
-
-  return (
-    <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
-      This slot is in the past. You have {seconds}s to remove it or drag it to
-      another time.
-    </p>
-  )
-}
-
 function BookingForm({
   selection,
   createBooking,
@@ -106,12 +73,6 @@ function BookingForm({
   const [companyError, setCompanyError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPending, setIsPending] = useState(false)
-
-  const now = getBuenosAiresNow()
-  const showGraceNotice =
-    booking &&
-    isPastSlot(booking.slotDate, booking.slotTime, now) &&
-    isBookingInGracePeriod(booking)
 
   async function handleBook(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -249,7 +210,6 @@ function BookingForm({
   if (booking) {
     return (
       <form onSubmit={handleSave}>
-        {showGraceNotice ? <GracePeriodNotice booking={booking} /> : null}
         {formFields}
         <DialogFooter className="mt-4">
           <Button type="button" variant="outline" onClick={onClose}>

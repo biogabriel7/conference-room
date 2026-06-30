@@ -40,13 +40,6 @@ export function isBookingInGracePeriod(
   return at - getBookingGraceAnchorMs(booking) <= BOOKING_GRACE_PERIOD_MS
 }
 
-export function getBookingGraceRemainingMs(
-  booking: BookingTimestamps,
-  at = Date.now()
-) {
-  return Math.max(0, BOOKING_GRACE_PERIOD_MS - (at - getBookingGraceAnchorMs(booking)))
-}
-
 /** Whether a slot should be blocked for booking or moving into. */
 export function isPastSlotBlocked(
   slotDate: string,
