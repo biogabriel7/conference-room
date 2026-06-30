@@ -19,6 +19,11 @@ export default defineSchema({
     slug: v.string(),
     segments: v.array(textSegment),
     updatedAt: v.number(),
+    status: v.optional(v.union(v.literal("drafting"), v.literal("locked"))),
+    lockedAt: v.optional(v.number()),
+    lockedByName: v.optional(v.string()),
+    lockedByCompany: v.optional(company),
+    baselineSegments: v.optional(v.array(textSegment)),
   }).index("by_slug", ["slug"]),
   textPresence: defineTable({
     slug: v.string(),

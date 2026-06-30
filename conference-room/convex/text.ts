@@ -105,8 +105,15 @@ export const getTextContent = query({
         content: DEFAULT_CONTENT,
         updatedAt: 0,
         isSeeded: false,
+        status: "drafting" as const,
+        lockedAt: null,
+        lockedByName: null,
+        lockedByCompany: null,
+        baselineContent: DEFAULT_CONTENT,
       }
     }
+
+    const baselineSegments = document.baselineSegments ?? getDefaultSegments()
 
     return {
       slug,
@@ -114,6 +121,11 @@ export const getTextContent = query({
       content: joinSegments(document.segments),
       updatedAt: document.updatedAt,
       isSeeded: true,
+      status: document.status ?? ("drafting" as const),
+      lockedAt: document.lockedAt ?? null,
+      lockedByName: document.lockedByName ?? null,
+      lockedByCompany: document.lockedByCompany ?? null,
+      baselineContent: joinSegments(baselineSegments),
     }
   },
 })
@@ -161,7 +173,7 @@ export const getDocument = query({
   handler: async (ctx, args) => {
     const slug = args.slug ?? DEFAULT_SLUG
     const now = args.now
-    let document = await ctx.db
+    const document = await ctx.db
       .query("textDocuments")
       .withIndex("by_slug", (query) => query.eq("slug", slug))
       .unique()
@@ -229,6 +241,8 @@ export const ensureDocument = mutation({
       slug,
       segments: getDefaultSegments(),
       updatedAt: now,
+      status: "drafting",
+      baselineSegments: getDefaultSegments(),
     })
   },
 })
@@ -250,12 +264,19 @@ export const resetDocument = mutation({
       await ctx.db.patch(document._id, {
         segments: getDefaultSegments(),
         updatedAt: now,
+        status: "drafting",
+        baselineSegments: getDefaultSegments(),
+        lockedAt: undefined,
+        lockedByName: undefined,
+        lockedByCompany: undefined,
       })
     } else {
       await ctx.db.insert("textDocuments", {
         slug,
         segments: getDefaultSegments(),
         updatedAt: now,
+        status: "drafting",
+        baselineSegments: getDefaultSegments(),
       })
     }
 
@@ -311,6 +332,8 @@ export const applyEdit = mutation({
         slug,
         segments: getDefaultSegments(),
         updatedAt: now,
+        status: "drafting",
+        baselineSegments: getDefaultSegments(),
       })
       document = await ctx.db.get(documentId)
     }
@@ -319,7 +342,10 @@ export const applyEdit = mutation({
       throw new Error("Document could not be loaded.")
     }
 
-    const previousText = joinSegments(document.segments)
+    if (document.status === "locked") {
+      throw new Error("The report is locked. Reopen it to keep editing.")
+    }
+
     const nextSegments = applyEditToSegments(
       document.segments,
       args.start,
@@ -448,6 +474,10 @@ export const restoreToEdit = mutation({
       throw new Error("Document could not be loaded.")
     }
 
+    if (document.status === "locked") {
+      throw new Error("The report is locked. Reopen it to restore a version.")
+    }
+
     const currentText = joinSegments(document.segments)
     const restoredText = joinSegments(edit.snapshot)
 
@@ -471,6 +501,109 @@ export const restoreToEdit = mutation({
       summary: `restored the report to ${edit.name}'s version`,
       baselineText: currentText,
       snapshot: edit.snapshot,
+      createdAt: now,
+      updatedAt: now,
+    })
+  },
+})
+
+export const lockDocument = mutation({
+  args: {
+    slug: v.optional(v.string()),
+    sessionId: v.string(),
+    name: v.string(),
+    company,
+  },
+  handler: async (ctx, args) => {
+    const slug = args.slug ?? DEFAULT_SLUG
+    const name = args.name.trim()
+
+    if (!name) {
+      throw new Error("Name is required.")
+    }
+
+    const document = await ctx.db
+      .query("textDocuments")
+      .withIndex("by_slug", (query) => query.eq("slug", slug))
+      .unique()
+
+    if (!document) {
+      throw new Error("Document could not be loaded.")
+    }
+
+    if (document.status === "locked") {
+      return null
+    }
+
+    const now = Date.now()
+
+    // The locked version becomes the baseline the next review diff compares to.
+    await ctx.db.patch(document._id, {
+      status: "locked",
+      lockedAt: now,
+      lockedByName: name,
+      lockedByCompany: args.company,
+      baselineSegments: document.segments,
+      updatedAt: now,
+    })
+
+    return await ctx.db.insert("textEdits", {
+      slug,
+      sessionId: args.sessionId,
+      name,
+      company: args.company,
+      summary: "locked the report as the official version",
+      baselineText: joinSegments(document.segments),
+      snapshot: document.segments,
+      createdAt: now,
+      updatedAt: now,
+    })
+  },
+})
+
+export const reopenDocument = mutation({
+  args: {
+    slug: v.optional(v.string()),
+    sessionId: v.string(),
+    name: v.string(),
+    company,
+  },
+  handler: async (ctx, args) => {
+    const slug = args.slug ?? DEFAULT_SLUG
+    const name = args.name.trim()
+
+    if (!name) {
+      throw new Error("Name is required.")
+    }
+
+    const document = await ctx.db
+      .query("textDocuments")
+      .withIndex("by_slug", (query) => query.eq("slug", slug))
+      .unique()
+
+    if (!document) {
+      throw new Error("Document could not be loaded.")
+    }
+
+    if (document.status !== "locked") {
+      return null
+    }
+
+    const now = Date.now()
+
+    await ctx.db.patch(document._id, {
+      status: "drafting",
+      updatedAt: now,
+    })
+
+    return await ctx.db.insert("textEdits", {
+      slug,
+      sessionId: args.sessionId,
+      name,
+      company: args.company,
+      summary: "reopened the report for editing",
+      baselineText: joinSegments(document.segments),
+      snapshot: document.segments,
       createdAt: now,
       updatedAt: now,
     })

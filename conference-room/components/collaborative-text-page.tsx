@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react"
 
 import { AppNav } from "@/components/app-nav"
 import { AttributedTextView } from "@/components/attributed-text-view"
+import { ReportDiffView } from "@/components/report-diff-view"
 import { TextIdentityDialog } from "@/components/text-identity-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -58,6 +59,8 @@ export function CollaborativeTextPage() {
   const [error, setError] = useState<string | null>(null)
   const [showAuthorship, setShowAuthorship] = useState(true)
   const [hasInitializedDraft, setHasInitializedDraft] = useState(false)
+  const [reviewMode, setReviewMode] = useState(false)
+  const [shareCopied, setShareCopied] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -76,6 +79,8 @@ export function CollaborativeTextPage() {
   const updatePresence = useMutation(api.text.updatePresence)
   const leavePresence = useMutation(api.text.leavePresence)
   const restoreToEdit = useMutation(api.text.restoreToEdit)
+  const lockDocument = useMutation(api.text.lockDocument)
+  const reopenDocument = useMutation(api.text.reopenDocument)
 
   const handleRestore = useCallback(
     async (editId: Id<"textEdits">) => {
@@ -101,6 +106,59 @@ export function CollaborativeTextPage() {
     },
     [identity, restoreToEdit]
   )
+
+  const handleLock = useCallback(async () => {
+    if (!identity) {
+      return
+    }
+
+    try {
+      await lockDocument({
+        sessionId: identity.sessionId,
+        name: identity.name,
+        company: identity.company,
+      })
+      setReviewMode(false)
+      setError(null)
+    } catch (lockError) {
+      setError(
+        lockError instanceof Error
+          ? lockError.message
+          : "Could not lock the report."
+      )
+    }
+  }, [identity, lockDocument])
+
+  const handleReopen = useCallback(async () => {
+    if (!identity) {
+      return
+    }
+
+    try {
+      await reopenDocument({
+        sessionId: identity.sessionId,
+        name: identity.name,
+        company: identity.company,
+      })
+      setError(null)
+    } catch (reopenError) {
+      setError(
+        reopenError instanceof Error
+          ? reopenError.message
+          : "Could not reopen the report."
+      )
+    }
+  }, [identity, reopenDocument])
+
+  const handleShare = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      setShareCopied(true)
+      window.setTimeout(() => setShareCopied(false), 2_000)
+    } catch {
+      setError("Could not copy the link.")
+    }
+  }, [])
 
   const getCursor = useCallback(() => {
     const textarea = textareaRef.current
@@ -238,6 +296,8 @@ export function CollaborativeTextPage() {
     }))
   }, [segments])
 
+  const isLocked = textContent?.status === "locked"
+
   if (!isConvexEnabled) {
     return (
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-6">
@@ -281,7 +341,8 @@ export function CollaborativeTextPage() {
                 Collaborative text
               </h1>
               <p className="text-sm text-muted-foreground">
-                Edit shared MDX-style notes with live authorship and activity.
+                Co-edit the report live, then review the changes and lock the
+                official version.
               </p>
             </div>
           </div>
@@ -291,6 +352,23 @@ export function CollaborativeTextPage() {
               <Badge className={getAuthorLabelClassName(identity.company)}>
                 {identity.name} · {getCompanyLabel(identity.company)}
               </Badge>
+            ) : null}
+            {textContent && identity ? (
+              isLocked ? (
+                <Badge variant="outline">Locked</Badge>
+              ) : reviewMode ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setReviewMode(false)}
+                >
+                  Back to editing
+                </Button>
+              ) : (
+                <Button size="sm" onClick={() => setReviewMode(true)}>
+                  Review &amp; lock
+                </Button>
+              )
             ) : null}
             <Button
               variant="outline"
@@ -317,74 +395,134 @@ export function CollaborativeTextPage() {
           </div>
         ) : (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">Editing as you</span>
-                {activePresence.length > 0 ? (
+            {isLocked ? (
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+                  <div className="flex flex-col gap-1">
+                    <h2 className="text-sm font-semibold">
+                      Official version — locked
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      Locked by {textContent.lockedByName ?? "someone"}
+                      {textContent.lockedAt
+                        ? ` · ${formatRelativeTime(textContent.lockedAt, now)}`
+                        : ""}
+                      . Editing is closed until someone reopens it.
+                    </p>
+                  </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm text-muted-foreground">
-                      with
-                    </span>
-                    {activePresence.map((entry) => (
-                      <Badge
-                        key={entry.sessionId}
-                        className={getAuthorLabelClassName(entry.company)}
-                      >
-                        {entry.name}
-                        <span className="text-muted-foreground">
-                          · line{" "}
-                          {getLineNumber(textContent.content, entry.cursor)}
-                        </span>
-                      </Badge>
-                    ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleShare()}
+                    >
+                      {shareCopied ? "Link copied" : "Copy share link"}
+                    </Button>
+                    <Button size="sm" onClick={() => void handleReopen()}>
+                      Reopen for editing
+                    </Button>
                   </div>
-                ) : (
-                  <span className="text-sm text-muted-foreground">
-                    — no one else is here right now
-                  </span>
-                )}
-              </div>
-
-              <Textarea
-                ref={textareaRef}
-                value={draftText}
-                onChange={(event) => {
-                  const nextText = event.target.value
-                  setDraftText(nextText)
-                  setError(null)
-                  handleDraftChange(nextText)
-                }}
-                onFocus={handleFocus}
-                onBlur={() => {
-                  void handleBlur(draftText).catch((blurError) => {
-                    setError(
-                      blurError instanceof Error
-                        ? blurError.message
-                        : "Could not save your edit."
-                    )
-                  })
-                }}
-                onSelect={handleCursorChange}
-                onKeyUp={handleCursorChange}
-                onClick={handleCursorChange}
-                spellCheck
-                className="min-h-[28rem] font-mono text-sm leading-6"
-                placeholder="Start writing..."
-                disabled={!identity}
-              />
-
-              {showAuthorship ? (
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <h2 className="text-sm font-medium">Authorship view</h2>
-                    <span className="text-xs text-muted-foreground">
-                      Colored spans show who wrote each passage
-                    </span>
-                  </div>
-                  <AttributedTextView segments={segments} />
                 </div>
-              ) : null}
-            </div>
+                <AttributedTextView segments={segments} />
+              </div>
+            ) : reviewMode ? (
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-col gap-1">
+                    <h2 className="text-sm font-semibold">Review changes</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Green is added, struck-through is removed — vs. the last
+                      locked version.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setReviewMode(false)}
+                    >
+                      Back to editing
+                    </Button>
+                    <Button size="sm" onClick={() => void handleLock()}>
+                      Lock &amp; publish
+                    </Button>
+                  </div>
+                </div>
+                <ReportDiffView
+                  baseline={textContent.baselineContent}
+                  current={textContent.content}
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium">Editing as you</span>
+                  {activePresence.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm text-muted-foreground">
+                        with
+                      </span>
+                      {activePresence.map((entry) => (
+                        <Badge
+                          key={entry.sessionId}
+                          className={getAuthorLabelClassName(entry.company)}
+                        >
+                          {entry.name}
+                          <span className="text-muted-foreground">
+                            · line{" "}
+                            {getLineNumber(textContent.content, entry.cursor)}
+                          </span>
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      — no one else is here right now
+                    </span>
+                  )}
+                </div>
+
+                <Textarea
+                  ref={textareaRef}
+                  value={draftText}
+                  onChange={(event) => {
+                    const nextText = event.target.value
+                    setDraftText(nextText)
+                    setError(null)
+                    handleDraftChange(nextText)
+                  }}
+                  onFocus={handleFocus}
+                  onBlur={() => {
+                    void handleBlur(draftText).catch((blurError) => {
+                      setError(
+                        blurError instanceof Error
+                          ? blurError.message
+                          : "Could not save your edit."
+                      )
+                    })
+                  }}
+                  onSelect={handleCursorChange}
+                  onKeyUp={handleCursorChange}
+                  onClick={handleCursorChange}
+                  spellCheck
+                  className="min-h-[28rem] font-mono text-sm leading-6"
+                  placeholder="Start writing..."
+                  disabled={!identity}
+                />
+
+                {showAuthorship ? (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <h2 className="text-sm font-medium">Authorship view</h2>
+                      <span className="text-xs text-muted-foreground">
+                        Colored spans show who wrote each passage
+                      </span>
+                    </div>
+                    <AttributedTextView segments={segments} />
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             <aside className="flex flex-col gap-4">
               <section className="rounded-xl border bg-background p-4">
@@ -438,7 +576,7 @@ export function CollaborativeTextPage() {
                               now
                             )}
                           </span>
-                          {edit.snapshot && index > 0 ? (
+                          {edit.snapshot && index > 0 && !isLocked ? (
                             <Button
                               variant="ghost"
                               size="sm"

@@ -1,42 +1,57 @@
-# Demo: report co-editing + restore
+# Demo: report lifecycle — live co-edit → review diff → lock → share
 
-Goal: reframe the direct-multiplayer text page as a student report (Lola) co-edited
-by teachers, and add version restore. Story for the team: Convex makes "moderation"
-just live co-editing + attribution + reversible history — no approval pipeline needed.
+Decision (from team discussion): drop per-change approval. Assigning who can edit IS
+the governance decision; re-approving every keystroke is ceremony, not safety. Model =
+live co-edit + attribution + history + owner review-and-lock. The lock is the single
+sign-off gate; the activity feed + snapshots are the audit trail.
 
 ## Plan
 
-- [x] **Reseed content** — replaced `DEFAULT_CONTENT` in `convex/text.ts` with the
-      cleaned-up Lola report (Volantis Q&A format, Spanish).
-- [x] **Schema** — added optional `snapshot: array(textSegment)` to `textEdits` in
-      `convex/schema.ts`. Each activity entry is now an immutable version snapshot.
-- [x] **Capture snapshots** — `recordEditBurst` stores current document `segments`
-      as `snapshot` (both insert and coalesce paths). Preserves attribution.
-- [x] **Restore mutation** — `restoreToEdit(slug, editId, identity)` repoints
-      `document.segments` to that edit's snapshot, then logs a new "restored to X's
-      version" entry (itself a snapshot, so restore is fully reversible).
-- [x] **Client** — added a "Restore" button to each Recent-edits entry (hidden on the
-      newest = current state and on legacy entries without a snapshot); wired
-      `api.text.restoreToEdit`.
-- [x] **Verify** — `tsc --noEmit` clean; eslint shows no new errors from these changes
-      (the 3 remaining `set-state-in-effect` errors are pre-existing, untouched code).
+- [ ] **Schema** (`convex/schema.ts`) — add to `textDocuments` (all optional, default
+      "drafting"): `status: "drafting" | "locked"`, `lockedAt`, `lockedByName`,
+      `lockedByCompany`, `baselineSegments` (the last-locked version, for the diff).
+- [ ] **Server lifecycle** (`convex/text.ts`):
+  - `getTextContent` returns status + lock info + `baselineContent` (joined baseline).
+  - `lockDocument` — set locked + lock metadata, set baseline = current segments, log
+    a "locked the report" activity entry.
+  - `reopenDocument` — back to drafting, log "reopened for editing".
+  - Guard `applyEdit` and `restoreToEdit` to reject writes when locked.
+  - Defaults in `ensureDocument` / `resetDocument` (status drafting, baseline = seed).
+- [ ] **Diff util** (`lib/text-diff.ts`) — word-level LCS diff → tokens
+      (`equal | added | removed`), merged into runs for clean rendering.
+- [ ] **Diff view** (`components/report-diff-view.tsx`) — render tokens: added = green,
+      removed = red strikethrough.
+- [ ] **Page lifecycle** (`components/collaborative-text-page.tsx`) — three states:
+  - drafting → textarea editor (current) + a "Review & lock" button
+  - reviewing (client toggle) → diff vs baseline + "Lock & publish" / "Back to editing"
+  - locked → read-only `AttributedTextView` "official version" + banner (locked by /
+    when) + "Reopen for editing" + "Copy share link"
+  - disable editor + restore when locked.
+- [ ] **Verify** — `tsc`, lint (no new errors), reseed if needed, sanity-check the
+      lock/reopen round-trip.
 
-## Design notes
+## Notes
 
-- Snapshot = full `segments` array (not plain text) so who-wrote-what survives restore.
-- The activity feed doubles as version history. No new table, no new query.
-- Restore is non-destructive: older/newer edit rows keep their own snapshots, so you
-  can jump to any version. This is the elegant Convex moment to show the team.
+- Role-free on purpose: anyone can lock, framed as the owner action. Adding an explicit
+  owner role is a later step if the team wants it — kept out to stay true to the
+  "don't add ceremony" decision.
+- Share is lightweight (copy current link + "official version" badge), not a separate
+  public route — enough to narrate the lifecycle.
+- Real concurrency caveat unchanged: segment model is last-write-wins for simultaneous
+  edits to the same region; fine for async, would need a CRDT for true simultaneity.
 
 ## Review
 
-- The activity feed is now version history: each burst snapshots the full `segments`
-  array, so restoring preserves who-wrote-what (colors survive the round-trip).
-- Restore is one mutation + reactive query — no approval pipeline, no polling. This is
-  the line to deliver to the team: "moderation" = live co-edit + attribution + revert.
-- Restore is non-destructive: older and newer entries keep their own snapshots, so you
-  can jump to any version and back.
-- Not addressed (out of scope): the 3 pre-existing `react-hooks/set-state-in-effect`
-  lint errors in the page's data-init effects. Worth a separate cleanup pass.
-- To run: `npm run dev` (Convex pushes the new optional `snapshot` field automatically;
-  optional-field adds are a safe migration). Open two browser windows to demo live sync.
+- Three states ship: drafting (live textarea + attribution), reviewing (word-level diff
+  vs. last locked version), locked (read-only official view + reopen/share).
+- Lock sets the locked version as the next review baseline, so each cycle's diff shows
+  exactly "what changed since we last published." Lock & reopen are logged in the feed.
+- Server guards: `applyEdit` and `restoreToEdit` reject writes while locked (verified via
+  CLI — the lock error fires). Restore buttons hidden in the UI when locked too.
+- Verified end-to-end on the local deployment: lock → status locked, write rejected,
+  reopen → drafting.
+- `tsc` clean; lint adds no new errors (only the 3 pre-existing set-state-in-effect ones
+  remain) and I cleaned 2 pre-existing nits (prefer-const, unused var).
+- Role-free by design (anyone can lock, framed as the owner action), per the team
+  decision that assigning editors is the real governance gate.
+- To start the demo from a pristine state: `npx convex run text:resetDocument '{}'`.
