@@ -39,6 +39,11 @@ export type UpdateBookingDetailsInput = {
   note: string
 }
 
+export type RemoveBookingInput = {
+  id: string
+  scope?: "single" | "series"
+}
+
 export type CreateBookingInput = {
   slotDate: string
   slotTime: TimeSlot
@@ -293,8 +298,28 @@ export function useLocalBookings(startDate: string, endDate: string) {
     }
   }, [])
 
-  const removeBooking = useCallback(async (id: string) => {
-    writeBookings(bookingsStore.filter((booking) => booking.id !== id))
+  const countSeriesBookings = useCallback(async (seriesId: string) => {
+    return bookingsStore.filter((booking) => booking.seriesId === seriesId)
+      .length
+  }, [])
+
+  const removeBooking = useCallback(async (input: RemoveBookingInput) => {
+    const booking = bookingsStore.find((candidate) => candidate.id === input.id)
+
+    if (!booking) {
+      throw new Error("Booking not found.")
+    }
+
+    if (input.scope === "series" && booking.seriesId) {
+      writeBookings(
+        bookingsStore.filter(
+          (candidate) => candidate.seriesId !== booking.seriesId
+        )
+      )
+      return
+    }
+
+    writeBookings(bookingsStore.filter((candidate) => candidate.id !== input.id))
   }, [])
 
   const updateBooking = useCallback(async (input: UpdateBookingInput) => {
@@ -379,6 +404,7 @@ export function useLocalBookings(startDate: string, endDate: string) {
     previewRecurring,
     createRecurring,
     removeBooking,
+    countSeriesBookings,
     updateBooking,
     updateBookingDetails,
   }

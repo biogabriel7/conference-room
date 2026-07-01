@@ -66,5 +66,6 @@ export default defineSchema({
     seriesId: v.optional(v.string()),
   })
     .index("by_slot_date", ["slotDate"])
-    .index("by_slot", ["slotDate", "slotTime"]),
+    .index("by_slot", ["slotDate", "slotTime"])
+    .index("by_series", ["seriesId"]),
 })

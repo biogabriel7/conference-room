@@ -9,6 +9,7 @@ import type {
   CreateRecurringInput,
   CreateRecurringResult,
   PreviewRecurringInput,
+  RemoveBookingInput,
   UpdateBookingDetailsInput,
 } from "@/hooks/use-local-bookings"
 import type { Booking } from "@/lib/types"
@@ -65,7 +66,8 @@ type BookingDialogProps = {
     input: CreateRecurringInput
   ) => Promise<CreateRecurringResult>
   updateBookingDetails: (input: UpdateBookingDetailsInput) => Promise<void>
-  removeBooking: (id: string) => Promise<void>
+  removeBooking: (input: RemoveBookingInput) => Promise<void>
+  countSeriesBookings: (seriesId: string) => Promise<number>
 }
 
 type BookingFormProps = {
@@ -76,7 +78,8 @@ type BookingFormProps = {
     input: CreateRecurringInput
   ) => Promise<CreateRecurringResult>
   updateBookingDetails: (input: UpdateBookingDetailsInput) => Promise<void>
-  removeBooking: (id: string) => Promise<void>
+  removeBooking: (input: RemoveBookingInput) => Promise<void>
+  countSeriesBookings: (seriesId: string) => Promise<number>
   onClose: () => void
 }
 
@@ -130,6 +133,7 @@ function BookingForm({
   createRecurring,
   updateBookingDetails,
   removeBooking,
+  countSeriesBookings,
   onClose,
 }: BookingFormProps) {
   const booking = selection.booking
@@ -145,6 +149,8 @@ function BookingForm({
     string | null
   >(null)
   const [confirmConflicts, setConfirmConflicts] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const [seriesCount, setSeriesCount] = useState<number | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
   const [companyError, setCompanyError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -197,6 +203,31 @@ function BookingForm({
       cancelled = true
     }
   }, [previewRecurring, recurringInput])
+
+  useEffect(() => {
+    if (!booking?.seriesId) {
+      setSeriesCount(null)
+      return
+    }
+
+    let cancelled = false
+
+    void countSeriesBookings(booking.seriesId)
+      .then((count) => {
+        if (!cancelled) {
+          setSeriesCount(count)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSeriesCount(null)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [booking?.seriesId, countSeriesBookings])
 
   function validateForm() {
     let valid = true
@@ -323,7 +354,7 @@ function BookingForm({
     }
   }
 
-  async function handleRemove() {
+  async function submitRemove(scope: "single" | "series") {
     if (!booking) {
       return
     }
@@ -332,13 +363,28 @@ function BookingForm({
     setError(null)
 
     try {
-      await removeBooking(booking.id)
+      await removeBooking({ id: booking.id, scope })
       onClose()
     } catch (caught) {
       setError(getBookingErrorMessage(caught))
+      setConfirmRemove(false)
     } finally {
       setIsPending(false)
     }
+  }
+
+  function handleRemoveClick() {
+    if (!booking) {
+      return
+    }
+
+    if (booking.seriesId) {
+      setConfirmRemove(true)
+      setError(null)
+      return
+    }
+
+    void submitRemove("single")
   }
 
   const formFields = (
@@ -542,22 +588,64 @@ function BookingForm({
       <form onSubmit={handleSave}>
         {formFields}
         <DialogFooter className="mt-4">
-          <Button type="button" variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={isPending}
-            onClick={handleRemove}
-          >
-            {isPending ? <Spinner data-icon="inline-start" /> : null}
-            Remove
-          </Button>
-          <Button type="submit" disabled={isPending}>
-            {isPending ? <Spinner data-icon="inline-start" /> : null}
-            Save
-          </Button>
+          {confirmRemove ? (
+            <>
+              <p className="mr-auto text-left text-sm text-muted-foreground">
+                This booking is part of a repeating series
+                {seriesCount !== null
+                  ? ` (${seriesCount} ${seriesCount === 1 ? "date" : "dates"})`
+                  : ""}
+                . Remove only {formatSlotDate(selection.slotDate)} or the entire
+                series?
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isPending}
+                onClick={() => setConfirmRemove(false)}
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={isPending}
+                onClick={() => void submitRemove("single")}
+              >
+                {isPending ? <Spinner data-icon="inline-start" /> : null}
+                Only this date
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={isPending}
+                onClick={() => void submitRemove("series")}
+              >
+                {isPending ? <Spinner data-icon="inline-start" /> : null}
+                Entire series
+                {seriesCount !== null ? ` (${seriesCount})` : ""}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button type="button" variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={isPending}
+                onClick={handleRemoveClick}
+              >
+                {isPending ? <Spinner data-icon="inline-start" /> : null}
+                Remove
+              </Button>
+              <Button type="submit" disabled={isPending}>
+                {isPending ? <Spinner data-icon="inline-start" /> : null}
+                Save
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </form>
     )
@@ -624,6 +712,7 @@ export function BookingDialog({
   createRecurring,
   updateBookingDetails,
   removeBooking,
+  countSeriesBookings,
 }: BookingDialogProps) {
   const open = selection !== null
 
@@ -662,6 +751,7 @@ export function BookingDialog({
             createRecurring={createRecurring}
             updateBookingDetails={updateBookingDetails}
             removeBooking={removeBooking}
+            countSeriesBookings={countSeriesBookings}
             onClose={onClose}
           />
         ) : null}

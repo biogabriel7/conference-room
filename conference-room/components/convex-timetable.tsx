@@ -10,6 +10,7 @@ import type {
   CreateBookingInput,
   CreateRecurringInput,
   PreviewRecurringInput,
+  RemoveBookingInput,
   UpdateBookingDetailsInput,
   UpdateBookingInput,
 } from "@/hooks/use-local-bookings"
@@ -79,10 +80,20 @@ export function ConvexTimetable({ weekStart }: ConvexTimetableProps) {
   )
 
   const removeBooking = useCallback(
-    async (id: string) => {
-      await removeBookingMutation({ id: id as Id<"bookings"> })
+    async (input: RemoveBookingInput) => {
+      await removeBookingMutation({
+        id: input.id as Id<"bookings">,
+        scope: input.scope,
+      })
     },
     [removeBookingMutation]
+  )
+
+  const countSeriesBookings = useCallback(
+    async (seriesId: string) => {
+      return await convex.query(api.bookings.countBySeries, { seriesId })
+    },
+    [convex]
   )
 
   return (
@@ -95,6 +106,7 @@ export function ConvexTimetable({ weekStart }: ConvexTimetableProps) {
       updateBooking={updateBooking}
       updateBookingDetails={updateBookingDetails}
       removeBooking={removeBooking}
+      countSeriesBookings={countSeriesBookings}
     />
   )
 }

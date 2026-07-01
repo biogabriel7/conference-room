@@ -19,6 +19,7 @@ export function LocalTimetable({ weekStart }: LocalTimetableProps) {
     previewRecurring,
     createRecurring,
     removeBooking,
+    countSeriesBookings,
     updateBooking,
     updateBookingDetails,
   } = useLocalBookings(startDate, endDate)
@@ -33,6 +34,7 @@ export function LocalTimetable({ weekStart }: LocalTimetableProps) {
       updateBooking={updateBooking}
       updateBookingDetails={updateBookingDetails}
       removeBooking={removeBooking}
+      countSeriesBookings={countSeriesBookings}
       isLocal
     />
   )

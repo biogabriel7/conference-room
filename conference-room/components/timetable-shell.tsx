@@ -34,6 +34,7 @@ import type {
   CreateRecurringInput,
   CreateRecurringResult,
   PreviewRecurringInput,
+  RemoveBookingInput,
   UpdateBookingDetailsInput,
   UpdateBookingInput,
 } from "@/hooks/use-local-bookings"
@@ -80,7 +81,8 @@ type TimetableShellProps = {
   ) => Promise<CreateRecurringResult>
   updateBooking: (input: UpdateBookingInput) => Promise<void>
   updateBookingDetails: (input: UpdateBookingDetailsInput) => Promise<void>
-  removeBooking: (id: string) => Promise<void>
+  removeBooking: (input: RemoveBookingInput) => Promise<void>
+  countSeriesBookings: (seriesId: string) => Promise<number>
   isLocal?: boolean
 }
 
@@ -100,6 +102,7 @@ export function TimetableShell({
   updateBooking,
   updateBookingDetails,
   removeBooking,
+  countSeriesBookings,
   isLocal = false,
 }: TimetableShellProps) {
   const [selection, setSelection] = useState<SlotSelection | null>(null)
@@ -656,6 +659,7 @@ export function TimetableShell({
         createRecurring={createRecurring}
         updateBookingDetails={updateBookingDetails}
         removeBooking={removeBooking}
+        countSeriesBookings={countSeriesBookings}
       />
     </>
   )

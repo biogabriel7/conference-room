@@ -439,12 +439,52 @@ export const updateDetails = mutation({
   },
 })
 
+export const countBySeries = query({
+  args: {
+    seriesId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("bookings")
+      .withIndex("by_series", (query) => query.eq("seriesId", args.seriesId))
+      .collect()
+
+    return rows.length
+  },
+})
+
 export const remove = mutation({
   args: {
     id: v.id("bookings"),
+    scope: v.optional(v.union(v.literal("single"), v.literal("series"))),
   },
   handler: async (ctx, args) => {
+    const booking = await ctx.db.get(args.id)
+
+    if (!booking) {
+      throw new Error("Booking not found.")
+    }
+
+    const scope = args.scope ?? "single"
+
+    if (scope === "series" && booking.seriesId) {
+      const siblings = await ctx.db
+        .query("bookings")
+        .withIndex("by_series", (query) =>
+          query.eq("seriesId", booking.seriesId)
+        )
+        .collect()
+
+      for (const sibling of siblings) {
+        await ctx.db.delete(sibling._id)
+      }
+
+      return { deleted: siblings.length }
+    }
+
     await ctx.db.delete(args.id)
+
+    return { deleted: 1 }
   },
 })
 
