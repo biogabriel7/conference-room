@@ -24,6 +24,7 @@ import {
   type MovePreview,
   type ResizePreview,
   resolveSlotAtPoint,
+  DAY_COLUMN_HEADER_CLASS,
   TIME_COLUMN_HEADER_CLASS,
 } from "@/components/timetable-shell.shared"
 import { Button } from "@/components/ui/button"
@@ -559,7 +560,7 @@ export function TimetableShell({
 
         <div
           ref={tableContainerRef}
-          className="relative overflow-x-auto rounded-xl border bg-background"
+          className="relative max-h-[calc(100svh-12rem)] overflow-auto rounded-xl border bg-background"
         >
           <table className="w-full min-w-[640px] border-collapse text-sm">
             <thead>
@@ -573,8 +574,8 @@ export function TimetableShell({
                       key={toDateKey(day)}
                       aria-current={isToday ? "date" : undefined}
                       className={cn(
-                        "px-3 py-2 text-left font-medium",
-                        isToday ? "bg-foreground/[0.06]" : "bg-background",
+                        DAY_COLUMN_HEADER_CLASS,
+                        isToday && "bg-foreground/[0.06]",
                         dayIndex > 0 && "border-l border-border/40"
                       )}
                     >
