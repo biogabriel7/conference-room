@@ -6,10 +6,7 @@ import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-const NAV_ITEMS = [
-  { href: "/", label: "Schedule" },
-  { href: "/text", label: "Text" },
-] as const
+const NAV_ITEMS = [{ href: "/", label: "Schedule" }] as const
 
 export function AppNav() {
   const pathname = usePathname()
@@ -17,10 +14,7 @@ export function AppNav() {
   return (
     <nav className="flex flex-wrap items-center gap-2">
       {NAV_ITEMS.map((item) => {
-        const isActive =
-          item.href === "/"
-            ? pathname === "/"
-            : pathname.startsWith(item.href)
+        const isActive = pathname === "/"
 
         return (
           <Button
