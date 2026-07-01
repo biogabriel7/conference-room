@@ -1,6 +1,40 @@
 import { v } from "convex/values"
 
-import { internalMutation, mutation, query } from "./_generated/server"
+import {
+  internalMutation,
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server"
+import {
+  classifyRecurrenceOccurrences,
+  getRecurrenceDates,
+} from "../lib/recurrence"
+
+const recurrenceEnd = v.union(
+  v.literal("1month"),
+  v.literal("3months"),
+  v.literal("6months"),
+  v.literal("1year"),
+  v.literal("52weeks")
+)
+
+const recurringArgs = {
+  slotDate: v.string(),
+  slotTime: v.string(),
+  slotCount: v.number(),
+  intervalWeeks: v.union(v.literal(1), v.literal(2)),
+  end: recurrenceEnd,
+}
+
+type RecurringArgs = {
+  slotDate: string
+  slotTime: string
+  slotCount: number
+  intervalWeeks: 1 | 2
+  end: "1month" | "3months" | "6months" | "1year" | "52weeks"
+}
 
 const SLOT_DURATION_MINUTES = 15
 const DAY_START_MINUTES = 8 * 60
@@ -69,11 +103,7 @@ function getBuenosAiresNow(now: number) {
   }
 }
 
-function isPastSlotAt(
-  slotDate: string,
-  slotTime: string,
-  now: number
-) {
+function isPastSlotAt(slotDate: string, slotTime: string, now: number) {
   const { dateKey, minutes } = getBuenosAiresNow(now)
 
   if (slotDate < dateKey) {
@@ -116,6 +146,51 @@ function assertNotPastSlot(
   }
 
   throw new Error("That time slot is in the past.")
+}
+
+async function getBookingsInDateRange(
+  ctx: QueryCtx | MutationCtx,
+  startDate: string,
+  endDate: string
+) {
+  return await ctx.db
+    .query("bookings")
+    .withIndex("by_slot_date", (q) =>
+      q.gte("slotDate", startDate).lte("slotDate", endDate)
+    )
+    .collect()
+}
+
+async function getRecurringPreview(
+  ctx: QueryCtx | MutationCtx,
+  args: RecurringArgs,
+  now: number
+) {
+  const slotCount = Math.max(1, args.slotCount)
+  const slots = getSlotsForBooking(args.slotTime, slotCount)
+
+  if (slots.length !== slotCount) {
+    throw new Error("That booking extends beyond the available hours.")
+  }
+
+  const slotDates = getRecurrenceDates(
+    args.slotDate,
+    args.intervalWeeks,
+    args.end
+  )
+  const bookings = await getBookingsInDateRange(
+    ctx,
+    slotDates[0],
+    slotDates[slotDates.length - 1]
+  )
+
+  return classifyRecurrenceOccurrences(
+    slotDates,
+    args.slotTime,
+    slotCount,
+    bookings,
+    getBuenosAiresNow(now)
+  )
 }
 
 export const listForWeek = query({
@@ -212,6 +287,76 @@ export const create = mutation({
   },
 })
 
+export const previewRecurring = query({
+  args: recurringArgs,
+  handler: async (ctx, args) => {
+    return await getRecurringPreview(ctx, args, Date.now())
+  },
+})
+
+export const createRecurring = mutation({
+  args: {
+    ...recurringArgs,
+    name: v.string(),
+    company: v.union(
+      v.literal("nilo"),
+      v.literal("first-plug"),
+      v.literal("volantis")
+    ),
+    note: v.string(),
+    skipConflicts: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const slotCount = Math.max(1, args.slotCount)
+    const name = args.name.trim()
+
+    if (!name) {
+      throw new Error("Name is required.")
+    }
+
+    const now = Date.now()
+    const preview = await getRecurringPreview(ctx, args, now)
+    const unavailable = preview.occurrences.filter(
+      (occurrence) => occurrence.status !== "available"
+    )
+
+    if (!args.skipConflicts && unavailable.length > 0) {
+      throw new Error("Some dates conflict.")
+    }
+
+    const available = preview.occurrences.filter(
+      (occurrence) => occurrence.status === "available"
+    )
+
+    if (available.length === 0) {
+      throw new Error("No dates are available for that recurring booking.")
+    }
+
+    const seriesId = crypto.randomUUID()
+    const note = args.note.trim()
+
+    for (const occurrence of available) {
+      await ctx.db.insert("bookings", {
+        slotDate: occurrence.slotDate,
+        slotTime: args.slotTime,
+        slotCount,
+        name,
+        company: args.company,
+        note,
+        createdAt: now,
+        slotChangedAt: now,
+        seriesId,
+      })
+    }
+
+    return {
+      seriesId,
+      created: available.length,
+      skipped: unavailable.length,
+    }
+  },
+})
+
 export const update = mutation({
   args: {
     id: v.id("bookings"),
@@ -245,7 +390,8 @@ export const update = mutation({
     for (const slotTime of slots) {
       const conflict = dayBookings.find(
         (candidate) =>
-          candidate._id !== booking._id && bookingOccupiesSlot(candidate, slotTime)
+          candidate._id !== booking._id &&
+          bookingOccupiesSlot(candidate, slotTime)
       )
 
       if (conflict) {

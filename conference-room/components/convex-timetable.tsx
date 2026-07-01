@@ -1,13 +1,15 @@
 "use client"
 
 import { useCallback, useMemo } from "react"
-import { useMutation, useQuery } from "convex/react"
+import { useConvex, useMutation, useQuery } from "convex/react"
 
 import { TimetableShell } from "@/components/timetable-shell"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import type {
   CreateBookingInput,
+  CreateRecurringInput,
+  PreviewRecurringInput,
   UpdateBookingDetailsInput,
   UpdateBookingInput,
 } from "@/hooks/use-local-bookings"
@@ -24,7 +26,9 @@ export function ConvexTimetable({ weekStart }: ConvexTimetableProps) {
   const endDate = toDateKey(weekDays[4])
 
   const bookings = useQuery(api.bookings.listForWeek, { startDate, endDate })
+  const convex = useConvex()
   const createBookingMutation = useMutation(api.bookings.create)
+  const createRecurringMutation = useMutation(api.bookings.createRecurring)
   const updateBookingMutation = useMutation(api.bookings.update)
   const updateDetailsMutation = useMutation(api.bookings.updateDetails)
   const removeBookingMutation = useMutation(api.bookings.remove)
@@ -34,6 +38,20 @@ export function ConvexTimetable({ weekStart }: ConvexTimetableProps) {
       await createBookingMutation(input)
     },
     [createBookingMutation]
+  )
+
+  const previewRecurring = useCallback(
+    async (input: PreviewRecurringInput) => {
+      return await convex.query(api.bookings.previewRecurring, input)
+    },
+    [convex]
+  )
+
+  const createRecurring = useCallback(
+    async (input: CreateRecurringInput) => {
+      return await createRecurringMutation(input)
+    },
+    [createRecurringMutation]
   )
 
   const updateBooking = useCallback(
@@ -72,6 +90,8 @@ export function ConvexTimetable({ weekStart }: ConvexTimetableProps) {
       weekStart={weekStart}
       bookings={bookings as Booking[] | undefined}
       createBooking={createBooking}
+      previewRecurring={previewRecurring}
+      createRecurring={createRecurring}
       updateBooking={updateBooking}
       updateBookingDetails={updateBookingDetails}
       removeBooking={removeBooking}
