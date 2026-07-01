@@ -4,6 +4,13 @@ import { useCallback, useMemo, useSyncExternalStore } from "react"
 
 import type { CompanyId, TimeSlot } from "@/lib/constants"
 import { getSlotsForBooking } from "@/lib/constants"
+import { getBuenosAiresNow } from "@/lib/buenos-aires"
+import {
+  classifyRecurrenceOccurrences,
+  getRecurrenceDates,
+  type RecurrenceEnd,
+  type RecurrencePreview,
+} from "@/lib/recurrence"
 import {
   assertNotPastSlotForBookingMove,
   assertNotPastSlotForCreate,
@@ -41,6 +48,25 @@ export type CreateBookingInput = {
   note: string
 }
 
+export type PreviewRecurringInput = {
+  slotDate: string
+  slotTime: TimeSlot
+  slotCount: number
+  intervalWeeks: 1 | 2
+  end: RecurrenceEnd
+}
+
+export type CreateRecurringInput = CreateBookingInput &
+  PreviewRecurringInput & {
+    skipConflicts: boolean
+  }
+
+export type CreateRecurringResult = {
+  seriesId: string
+  created: number
+  skipped: number
+}
+
 function sortBookings(bookings: Booking[]) {
   return [...bookings].sort((a, b) =>
     a.slotDate === b.slotDate
@@ -59,7 +85,7 @@ function readBookings(): Booking[] {
     const parsed = JSON.parse(stored) as StoredBookings | Booking[]
 
     if (Array.isArray(parsed)) {
-    return parsed.map((booking) => normalizeBooking(booking))
+      return parsed.map((booking) => normalizeBooking(booking))
     }
 
     if (parsed.v !== STORAGE_VERSION || !Array.isArray(parsed.bookings)) {
@@ -80,12 +106,41 @@ function normalizeBooking(booking: Booking): Booking {
   }
 }
 
-function bookingOccupiesSlot(booking: Booking, slotDate: string, slotTime: string) {
+function bookingOccupiesSlot(
+  booking: Booking,
+  slotDate: string,
+  slotTime: string
+) {
   if (booking.slotDate !== slotDate) {
     return false
   }
 
-  return getSlotsForBooking(booking.slotTime, booking.slotCount).includes(slotTime)
+  return getSlotsForBooking(booking.slotTime, booking.slotCount).includes(
+    slotTime
+  )
+}
+
+function getRecurringPreview(input: PreviewRecurringInput): RecurrencePreview {
+  const slotCount = Math.max(1, input.slotCount)
+  const slots = getSlotsForBooking(input.slotTime, slotCount)
+
+  if (slots.length !== slotCount) {
+    throw new Error("That booking extends beyond the available hours.")
+  }
+
+  const slotDates = getRecurrenceDates(
+    input.slotDate,
+    input.intervalWeeks,
+    input.end
+  )
+
+  return classifyRecurrenceOccurrences(
+    slotDates,
+    input.slotTime,
+    slotCount,
+    bookingsStore,
+    getBuenosAiresNow()
+  )
 }
 
 let bookingsStore: Booking[] = []
@@ -124,13 +179,18 @@ if (typeof window !== "undefined") {
 }
 
 export function useLocalBookings(startDate: string, endDate: string) {
-  const allBookings = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
+  const allBookings = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getServerSnapshot
+  )
 
   const bookings = useMemo(
     () =>
       sortBookings(
         allBookings.filter(
-          (booking) => booking.slotDate >= startDate && booking.slotDate <= endDate
+          (booking) =>
+            booking.slotDate >= startDate && booking.slotDate <= endDate
         )
       ),
     [allBookings, startDate, endDate]
@@ -152,7 +212,9 @@ export function useLocalBookings(startDate: string, endDate: string) {
     assertNotPastSlotForCreate(input.slotDate, input.slotTime)
 
     const hasConflict = bookingsStore.some((booking) =>
-      slots.some((slotTime) => bookingOccupiesSlot(booking, input.slotDate, slotTime))
+      slots.some((slotTime) =>
+        bookingOccupiesSlot(booking, input.slotDate, slotTime)
+      )
     )
 
     if (hasConflict) {
@@ -173,6 +235,62 @@ export function useLocalBookings(startDate: string, endDate: string) {
         slotChangedAt: createdAt,
       },
     ])
+  }, [])
+
+  const previewRecurring = useCallback(
+    async (input: PreviewRecurringInput) => getRecurringPreview(input),
+    []
+  )
+
+  const createRecurring = useCallback(async (input: CreateRecurringInput) => {
+    const slotCount = Math.max(1, input.slotCount)
+    const name = input.name.trim()
+
+    if (!name) {
+      throw new Error("Name is required.")
+    }
+
+    const preview = getRecurringPreview(input)
+    const unavailable = preview.occurrences.filter(
+      (occurrence) => occurrence.status !== "available"
+    )
+
+    if (!input.skipConflicts && unavailable.length > 0) {
+      throw new Error("Some dates conflict.")
+    }
+
+    const available = preview.occurrences.filter(
+      (occurrence) => occurrence.status === "available"
+    )
+
+    if (available.length === 0) {
+      throw new Error("No dates are available for that recurring booking.")
+    }
+
+    const createdAt = new Date().toISOString()
+    const seriesId = crypto.randomUUID()
+
+    writeBookings([
+      ...bookingsStore,
+      ...available.map((occurrence) => ({
+        id: crypto.randomUUID(),
+        slotDate: occurrence.slotDate,
+        slotTime: input.slotTime,
+        slotCount,
+        name,
+        company: input.company,
+        note: input.note.trim(),
+        createdAt,
+        slotChangedAt: createdAt,
+        seriesId,
+      })),
+    ])
+
+    return {
+      seriesId,
+      created: available.length,
+      skipped: unavailable.length,
+    }
   }, [])
 
   const removeBooking = useCallback(async (id: string) => {
@@ -224,35 +342,42 @@ export function useLocalBookings(startDate: string, endDate: string) {
     )
   }, [])
 
-  const updateBookingDetails = useCallback(async (input: UpdateBookingDetailsInput) => {
-    const booking = bookingsStore.find((candidate) => candidate.id === input.id)
-
-    if (!booking) {
-      throw new Error("Booking not found.")
-    }
-
-    const name = input.name.trim()
-    if (!name) {
-      throw new Error("Name is required.")
-    }
-
-    writeBookings(
-      bookingsStore.map((candidate) =>
-        candidate.id === booking.id
-          ? {
-              ...candidate,
-              name,
-              company: input.company,
-              note: input.note.trim(),
-            }
-          : candidate
+  const updateBookingDetails = useCallback(
+    async (input: UpdateBookingDetailsInput) => {
+      const booking = bookingsStore.find(
+        (candidate) => candidate.id === input.id
       )
-    )
-  }, [])
+
+      if (!booking) {
+        throw new Error("Booking not found.")
+      }
+
+      const name = input.name.trim()
+      if (!name) {
+        throw new Error("Name is required.")
+      }
+
+      writeBookings(
+        bookingsStore.map((candidate) =>
+          candidate.id === booking.id
+            ? {
+                ...candidate,
+                name,
+                company: input.company,
+                note: input.note.trim(),
+              }
+            : candidate
+        )
+      )
+    },
+    []
+  )
 
   return {
     bookings,
     createBooking,
+    previewRecurring,
+    createRecurring,
     removeBooking,
     updateBooking,
     updateBookingDetails,

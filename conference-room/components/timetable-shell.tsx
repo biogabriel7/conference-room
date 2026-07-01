@@ -30,9 +30,13 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import type {
   CreateBookingInput,
+  CreateRecurringInput,
+  CreateRecurringResult,
+  PreviewRecurringInput,
   UpdateBookingDetailsInput,
   UpdateBookingInput,
 } from "@/hooks/use-local-bookings"
+import type { RecurrencePreview } from "@/lib/recurrence"
 import { useSlotMetrics } from "@/hooks/use-slot-metrics"
 import {
   TIME_SLOTS,
@@ -42,7 +46,10 @@ import {
 } from "@/lib/constants"
 import type { TimeSlot } from "@/lib/constants"
 import type { Booking } from "@/lib/types"
-import { getBookingErrorMessage, isPastSlotBlocked } from "@/lib/slot-validation"
+import {
+  getBookingErrorMessage,
+  isPastSlotBlocked,
+} from "@/lib/slot-validation"
 import {
   formatWeekRange,
   formatWeekday,
@@ -66,6 +73,10 @@ type TimetableShellProps = {
   weekStart: Date
   bookings: Booking[] | undefined
   createBooking: (input: CreateBookingInput) => Promise<void>
+  previewRecurring: (input: PreviewRecurringInput) => Promise<RecurrencePreview>
+  createRecurring: (
+    input: CreateRecurringInput
+  ) => Promise<CreateRecurringResult>
   updateBooking: (input: UpdateBookingInput) => Promise<void>
   updateBookingDetails: (input: UpdateBookingDetailsInput) => Promise<void>
   removeBooking: (id: string) => Promise<void>
@@ -83,6 +94,8 @@ export function TimetableShell({
   weekStart,
   bookings,
   createBooking,
+  previewRecurring,
+  createRecurring,
   updateBooking,
   updateBookingDetails,
   removeBooking,
@@ -137,10 +150,7 @@ export function TimetableShell({
   }, [bookings, hiddenBookingId])
 
   const daySlotMaps = useMemo(() => {
-    const maps = new Map<
-      string,
-      ReturnType<typeof buildDaySlotMaps<Booking>>
-    >()
+    const maps = new Map<string, ReturnType<typeof buildDaySlotMaps<Booking>>>()
 
     for (const day of weekDays) {
       const slotDate = toDateKey(day)
@@ -428,7 +438,9 @@ export function TimetableShell({
     [now, syncDragPreview, syncMovePreview, syncResizePreview]
   )
 
-  handleSlotPointerEnterRef.current = handleSlotPointerEnter
+  useEffect(() => {
+    handleSlotPointerEnterRef.current = handleSlotPointerEnter
+  }, [handleSlotPointerEnter])
 
   const handleMovePointerDown = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>, booking: Booking) => {
@@ -639,6 +651,8 @@ export function TimetableShell({
         selection={selection}
         onClose={() => setSelection(null)}
         createBooking={createBooking}
+        previewRecurring={previewRecurring}
+        createRecurring={createRecurring}
         updateBookingDetails={updateBookingDetails}
         removeBooking={removeBooking}
       />

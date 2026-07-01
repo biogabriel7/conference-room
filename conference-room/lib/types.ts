@@ -11,4 +11,5 @@ export type Booking = {
   createdAt: string
   /** Set on create and whenever the slot position changes. */
   slotChangedAt?: string
+  seriesId?: string
 }
