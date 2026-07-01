@@ -485,9 +485,9 @@ export function TimetableShell({
 
   return (
     <>
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-6">
+      <div className="mx-auto flex h-svh w-full max-w-5xl flex-col gap-6 overflow-hidden p-6">
         {isLocal ? (
-          <div className="rounded-lg border border-dashed bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          <div className="shrink-0 rounded-lg border border-dashed bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
             Local mode — bookings are stored in this browser only. Run{" "}
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
               npm run dev
@@ -499,7 +499,7 @@ export function TimetableShell({
         {actionError ? (
           <div
             role="alert"
-            className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+            className="flex shrink-0 items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
           >
             <span>{actionError}</span>
             <button
@@ -512,7 +512,7 @@ export function TimetableShell({
           </div>
         ) : null}
 
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <header className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-2">
             <AppNav />
             <h1 className="text-2xl font-semibold tracking-tight">
@@ -560,7 +560,7 @@ export function TimetableShell({
 
         <div
           ref={tableContainerRef}
-          className="relative max-h-[calc(100svh-12rem)] overflow-auto rounded-xl border bg-background"
+          className="relative min-h-0 flex-1 overflow-auto rounded-xl border bg-background"
         >
           <table className="w-full min-w-[640px] border-collapse text-sm">
             <thead>
