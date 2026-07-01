@@ -23,7 +23,10 @@ export type MovePreview = {
 }
 
 export const TIME_COLUMN_HEADER_CLASS =
-  "sticky left-0 z-30 w-10 shrink-0 border-r border-border/80 bg-muted/70 px-1 py-2 text-left text-[10px] font-medium uppercase tracking-widest text-muted-foreground shadow-[4px_0_16px_-8px_rgba(0,0,0,0.12)] dark:shadow-[4px_0_16px_-8px_rgba(0,0,0,0.45)]"
+  "sticky top-0 left-0 z-40 w-10 shrink-0 border-r border-border/80 bg-muted/70 px-1 py-2 text-left text-[10px] font-medium uppercase tracking-widest text-muted-foreground shadow-[4px_0_16px_-8px_rgba(0,0,0,0.12)] dark:shadow-[4px_0_16px_-8px_rgba(0,0,0,0.45)]"
+
+export const DAY_COLUMN_HEADER_CLASS =
+  "sticky top-0 z-30 px-3 py-2 text-left font-medium bg-background"
 
 export const TIME_COLUMN_CELL_CLASS =
   "sticky left-0 z-20 w-10 shrink-0 border-r border-border/80 bg-muted/50 px-1 py-0.5 align-top text-center font-mono text-[11px] font-medium leading-none tabular-nums tracking-tight text-foreground/90"
